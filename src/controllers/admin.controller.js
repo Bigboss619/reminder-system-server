@@ -1,0 +1,1525 @@
+import { error } from "console";
+import { supabase } from "../config/supabase.js";
+
+
+export const createAdminUsersByAdmin = async (req, res, next) => {
+    try {
+        const { email, password, firstname, lastname, notes } = req.body;
+
+        // Get logged-in admin
+        const { data: currentUser, error: userError } = await supabase 
+            .from("users")
+            .select("department_id, role")
+            .eq("id", req.user.id)
+            .single();
+
+            if(userError) throw userError;
+
+        // Create Auth User
+        const { data: authUser, error: authError } =
+            await supabase.auth.admin.createUser({
+                email,
+                password,
+                email_confirm: true
+            });
+        if(authError) throw authError;
+
+        // Insert into the users table
+        const { error } = await supabase.from("users").insert([
+            {
+                id: authUser.user.id,
+                firstname,
+                lastname,
+                email,
+                role: "user",
+                department_id: currentUser.department_id,
+                status: "active",
+                notes
+            }
+        ]);
+
+        if(error) throw error;
+
+        res.status(201).json({ message: "User created successfully" });
+
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const getUserById = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const adminDepartmentId = req.user.department_id;
+
+        // Fetch user by ID
+        const { data: user, error: userError } = await supabase
+            .from("users")
+            .select("*")
+            .eq("id", id)
+            .single();
+
+        if (userError || !user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        // Verify user belongs to same department
+        if (user.department_id !== adminDepartmentId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+
+        // Fetch vehicles assigned to this user using assigned_user_id
+        const { data: vehicles, error: vehiclesError } = await supabase
+            .from("assets")
+            .select(`
+                id,
+                name,
+                status,
+                created_at,
+                vehicle_details (
+                    plate_number,
+                    model,
+                    year,
+                    color
+                )
+            `)
+            .eq("assigned_user_id", id)
+            .eq("asset_type", "vehicle");
+
+        if (vehiclesError) throw vehiclesError;
+
+        // Get vehicle IDs for document and maintenance queries
+        const vehicleIds = vehicles?.map(v => v.id) || [];
+
+        // Fetch documents for user's vehicles
+        let documents = [];
+        if (vehicleIds.length > 0) {
+            const { data: docs, error: docsError } = await supabase
+                .from("documents")
+                .select("*")
+                .in("asset_id", vehicleIds)
+                .order("created_at", { ascending: false });
+
+            if (docsError) throw docsError;
+            documents = docs || [];
+        }
+
+        // Fetch maintenance records for user's vehicles
+        let maintenance = [];
+        if (vehicleIds.length > 0) {
+            const { data: maint, error: maintError } = await supabase
+                .from("maintenance_records")
+                .select("*")
+                .in("asset_id", vehicleIds)
+                .order("created_at", { ascending: false });
+
+            if (maintError) throw maintError;
+            maintenance = maint || [];
+        }
+
+        // Fetch activity logs for user's vehicles (optional - table may not exist)
+        let activity = [];
+        if (vehicleIds.length > 0) {
+            try {
+                const { data: logs, error: logsError } = await supabase
+                    .from("activity_logs")
+                    .select("*")
+                    .in("asset_id", vehicleIds)
+                    .order("created_at", { ascending: false })
+                    .limit(20);
+
+                if (!logsError && logs) {
+                    activity = logs;
+                }
+            } catch (activityError) {
+                // Activity logs table may not exist, continue without it
+                console.log("Activity logs not available:", activityError.message);
+                activity = [];
+            }
+        }
+
+        // Transform data to match frontend expectations
+        const userDetails = {
+            id: user.id,
+            name: `${user.firstname} ${user.lastname}`,
+            email: user.email,
+            role: user.role || "Driver",
+            status: user.status === "active" ? "Active" : "Inactive",
+            joined: user.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : "N/A",
+            department: "Car",
+            phone: user.phone || "",
+            address: user.address || "",
+            notes: user.notes || "",
+            
+            summary: {
+                assignedCars: vehicles?.length || 0,
+                documentsUploaded: documents.length,
+                maintenanceRecords: maintenance.length,
+                pendingActions: documents.filter(d => {
+                    const daysUntilExpiry = Math.ceil((new Date(d.expiry_date) - new Date()) / (1000 * 60 * 60 * 24));
+                    return daysUntilExpiry > 0 && daysUntilExpiry <= 30;
+                }).length
+            },
+
+            assignedCars: vehicles?.map(v => ({
+                id: v.id,
+                name: v.name,
+                plate: v.vehicle_details?.[0]?.plate_number || "N/A",
+                status: v.status === "active" ? "Active" : "Inactive",
+                model: v.vehicle_details?.[0]?.model || "",
+                year: v.vehicle_details?.[0]?.year || "",
+                color: v.vehicle_details?.[0]?.color || ""
+            })) || [],
+
+            documents: documents.map(d => {
+                const vehicle = vehicles?.find(v => v.id === d.asset_id);
+                return {
+                    id: d.id,
+                    type: d.name,
+                    car: vehicle?.name || "Unknown",
+                    status: (() => {
+                        if (!d.expiry_date) return "Unknown";
+                        const daysUntilExpiry = Math.ceil((new Date(d.expiry_date) - new Date()) / (1000 * 60 * 60 * 24));
+                        if (daysUntilExpiry < 0) return "Expired";
+                        if (daysUntilExpiry <= 30) return "Expiring Soon";
+                        return "Valid";
+                    })(),
+                    expiryDate: d.expiry_date,
+                    issueDate: d.issue_date
+                };
+            }),
+
+            maintenance: maintenance.map(m => {
+                const vehicle = vehicles?.find(v => v.id === m.asset_id);
+                return {
+                    id: m.id,
+                    type: m.maintenance_type,
+                    car: vehicle?.name || "Unknown",
+                    date: m.next_due,
+                    status: (() => {
+                        if (!m.next_due) return "Unknown";
+                        if (new Date(m.next_due) < new Date()) return "Overdue";
+                        const daysUntil = Math.ceil((new Date(m.next_due) - new Date()) / (1000 * 60 * 60 * 24));
+                        if (daysUntil <= 7) return "Due Soon";
+                        return "Upcoming";
+                    })(),
+                    lastService: m.last_service,
+                    interval: m.interval
+                };
+            }),
+
+            activity: activity.map(h => ({
+                id: h.id,
+                action: h.action,
+                details: h.details,
+                date: h.created_at,
+                user: h.user_name || "System"
+            }))
+        };
+
+        res.json(userDetails);
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const changePassword = async (req, res, next) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+        const userId = req.user.id;
+        
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ error: "Current password and new password are required" });
+        }
+        
+        // Get user email from database
+        const { data: user, error: userError } = await supabase
+            .from("users")
+            .select("email")
+            .eq("id", userId)
+            .single();
+            
+        if (userError || !user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+        
+        // Verify current password against Supabase Auth
+        const { error: verifyError } = await supabase.auth.signInWithPassword({
+            email: user.email,
+            password: currentPassword
+        });
+        
+        if (verifyError) {
+            return res.status(400).json({ error: "Current password is incorrect" });
+        }
+        
+        // Change password using Supabase Auth
+        const { error } = await supabase.auth.admin.updateUserById(
+            userId,
+            { password: newPassword }
+        );
+        
+        if (error) {
+            return res.status(400).json({ error: error.message });
+        }
+        
+        res.status(200).json({ message: "Password changed successfully" });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const getAllUsersByAdmin = async (req, res, next) => {
+    try {
+        // Get logged-in admin's info
+        const { data: currentUser, error: userError } = await supabase
+            .from("users")
+            .select("department_id, role")
+            .eq("id", req.user.id)
+            .single();
+        
+        if(userError) throw userError;
+        
+        // Fetch all users in the same department (excluding other admins)
+        const { data: users, error } = await supabase
+            .from("users")
+            .select("*")
+            .eq("department_id", currentUser.department_id)
+            .neq("role", "admin");
+        
+        if(error) throw error;
+
+        // Get all vehicles to count assigned cars per user
+        const { data: vehicles, error: vehiclesError } = await supabase
+            .from("assets")
+            .select("id, assigned_user_id")
+            .eq("department_id", currentUser.department_id)
+            .eq("asset_type", "vehicle");
+
+        if (vehiclesError) throw vehiclesError;
+
+        // Count assigned cars per user
+        const carCountMap = {};
+        vehicles?.forEach(v => {
+            if (v.assigned_user_id) {
+                carCountMap[v.assigned_user_id] = (carCountMap[v.assigned_user_id] || 0) + 1;
+            }
+        });
+
+        // Add assigned_cars count to each user
+        const usersWithCarCount = users?.map(user => ({
+            ...user,
+            assigned_cars: carCountMap[user.id] || 0
+        })) || [];
+
+        res.json(usersWithCarCount);
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const updateUserStatus = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+        const adminDepartmentId = req.user.department_id;
+
+        if (!status || !["active", "inactive"].includes(status)) {
+            return res.status(400).json({ error: "Valid status is required (active or inactive)" });
+        }
+
+        // Fetch user by ID to verify they exist and belong to same department
+        const { data: user, error: userError } = await supabase
+            .from("users")
+            .select("id, department_id")
+            .eq("id", id)
+            .single();
+
+        if (userError || !user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        // Verify user belongs to same department
+        if (user.department_id !== adminDepartmentId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+
+        // Update user status
+        const { error: updateError } = await supabase
+            .from("users")
+            .update({ status })
+            .eq("id", id);
+
+        if (updateError) throw updateError;
+
+        res.json({ message: "User status updated successfully" });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const deleteUser = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const adminDepartmentId = req.user.department_id;
+
+        // Fetch user by ID to verify they exist and belong to same department
+        const { data: user, error: userError } = await supabase
+            .from("users")
+            .select("id, department_id")
+            .eq("id", id)
+            .single();
+
+        if (userError || !user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        // Verify user belongs to same department
+        if (user.department_id !== adminDepartmentId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+
+        // Get all vehicles assigned to this user
+        const { data: userVehicles } = await supabase
+            .from("assets")
+            .select("id")
+            .eq("assigned_user_id", id)
+            .eq("asset_type", "vehicle");
+
+        const vehicleIds = userVehicles?.map(v => v.id) || [];
+
+        // Delete related data for each vehicle
+        for (const vehicleId of vehicleIds) {
+            // Delete document renewals
+            await supabase
+                .from("document_renewals")
+                .delete()
+                .eq("asset_id", vehicleId);
+
+            // Delete documents
+            await supabase
+                .from("documents")
+                .delete()
+                .eq("asset_id", vehicleId);
+
+            // Delete maintenance records
+            await supabase
+                .from("maintenance_records")
+                .delete()
+                .eq("asset_id", vehicleId);
+
+            // Delete activity logs
+            await supabase
+                .from("activity_logs")
+                .delete()
+                .eq("asset_id", vehicleId);
+
+            // Delete vehicle details
+            await supabase
+                .from("vehicle_details")
+                .delete()
+                .eq("asset_id", vehicleId);
+
+            // Delete the vehicle asset
+            await supabase
+                .from("assets")
+                .delete()
+                .eq("id", vehicleId);
+        }
+
+        // Delete any activity logs directly associated with the user
+        await supabase
+            .from("activity_logs")
+            .delete()
+            .eq("user_id", id);
+
+        // Delete the user from users table
+        const { error: deleteUserError } = await supabase
+            .from("users")
+            .delete()
+            .eq("id", id);
+
+        if (deleteUserError) throw deleteUserError;
+
+        // Optionally delete from auth (this requires admin privileges in Supabase)
+        try {
+            await supabase.auth.admin.deleteUser(id);
+        } catch (authError) {
+            console.log("Auth user deletion skipped:", authError.message);
+        }
+
+        res.json({ message: "User and all related data deleted successfully" });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const getCars = async (req, res, next) => {
+  try {
+    const department_id = req.user.department_id;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    // Get total count
+    const { count, error: countError } = await supabase
+      .from("assets")
+      .select("*", { count: 'exact', head: true })
+      .eq("department_id", department_id)
+      .eq("asset_type", "vehicle");
+
+    if (countError) throw countError;
+
+    // Query from assets table with pagination
+    const { data: assets, error: assetsError } = await supabase
+      .from("assets")
+      .select(`
+        id,
+        name,
+        status,
+        created_by,
+        assigned_user_id,
+        vehicle_details (
+          id,
+          plate_number,
+          vin,
+          model,
+          year,
+          color
+        )
+      `)
+      .eq("department_id", department_id)
+      .eq("asset_type", "vehicle")
+      .range(offset, offset + limit - 1);
+
+    if (assetsError) throw assetsError;
+
+    // Get all user IDs to fetch user details
+    const userIds = [...new Set(assets?.map(a => a.assigned_user_id).filter(Boolean) || [])];
+    
+    let usersMap = {};
+    if (userIds.length > 0) {
+        const { data: users } = await supabase
+            .from("users")
+            .select("id, firstname, lastname")
+            .in("id", userIds);
+
+        if (users) {
+            usersMap = users.reduce((acc, user) => {
+                acc[user.id] = `${user.firstname} ${user.lastname}`;
+                return acc;
+            }, {});
+        }
+    }
+
+    // Transform the data to match the expected format
+    const cars = assets.map(asset => ({
+      id: asset.id,
+      name: asset.name,
+      plateNumber: asset.vehicle_details?.[0]?.plate_number || "",
+    //   plate_number: asset.vehicle_details?.[0]?.plate_number || "",
+      vin: asset.vehicle_details?.[0]?.vin || "",
+      model: asset.vehicle_details?.[0]?.model || "",
+      year: asset.vehicle_details?.[0]?.year || "",
+      color: asset.vehicle_details?.[0]?.color || "",
+      status: asset.status === "active" ? "Active" : "Inactive",
+      documentStatus: "valid",
+      maintenanceStatus: "upcoming",
+      assigned_user_id: asset.assigned_user_id,
+      assignedUser: asset.assigned_user_id ? usersMap[asset.assigned_user_id] || "Unknown" : "Not Assigned"
+    }));
+
+    res.json({
+      cars,
+      pagination: {
+        total: count,
+        page,
+        limit,
+        totalPages: Math.ceil(count / limit)
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateCar = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const department_id = req.user.department_id;
+    const { vehicle, documents, maintenance } = req.body;
+
+    // Update asset table
+    if (vehicle) {
+      const { error: assetError } = await supabase
+        .from("assets")
+        .update({
+          name: vehicle.name,
+          status: vehicle.status
+        })
+        .eq("id", id)
+        .eq("department_id", department_id);
+
+      if (assetError) throw assetError;
+
+      // Update vehicle_details table
+      const { error: vehicleDetailsError } = await supabase
+        .from("vehicle_details")
+        .update({
+          plate_number: vehicle.plate_number,
+          vin: vehicle.vin,
+          staff_name: vehicle.staff_name || null,
+          staff_email: vehicle.staff_email || null,
+          model: vehicle.model,
+          year: vehicle.year ? parseInt(vehicle.year, 10) : null,
+          color: vehicle.color
+        })
+        .eq("asset_id", id);
+
+      if (vehicleDetailsError) throw vehicleDetailsError;
+    }
+
+    // Handle documents if provided
+    if (documents && Array.isArray(documents)) {
+      // Get existing document IDs
+      const { data: existingDocs } = await supabase
+        .from("documents")
+        .select("id")
+        .eq("asset_id", id);
+
+      const existingDocIds = existingDocs?.map(d => d.id) || [];
+      const incomingDocIds = documents.filter(d => d.id).map(d => d.id);
+
+      // Delete documents that are not in the incoming list
+      const docsToDelete = existingDocIds.filter(docId => !incomingDocIds.includes(docId));
+      if (docsToDelete.length > 0) {
+        const { error: deleteDocsError } = await supabase
+          .from("documents")
+          .delete()
+          .in("id", docsToDelete);
+        
+        if (deleteDocsError) throw deleteDocsError;
+      }
+
+      // Update or insert documents
+      for (const doc of documents) {
+        if (doc.id && existingDocIds.includes(doc.id)) {
+          // Update existing document
+          const { error: updateDocError } = await supabase
+            .from("documents")
+            .update({
+              name: doc.name,
+              issue_date: doc.issueDate,
+              expiry_date: doc.expiryDate,
+              reminder_days: doc.reminder ? parseInt(doc.reminder, 10) : null
+            })
+            .eq("id", doc.id);
+
+          if (updateDocError) throw updateDocError;
+        } else if (!doc.id) {
+          // Insert new document
+          const { error: insertDocError } = await supabase
+            .from("documents")
+            .insert({
+              asset_id: id,
+              name: doc.name,
+              issue_date: doc.issueDate,
+              expiry_date: doc.expiryDate,
+              reminder_days: doc.reminder ? parseInt(doc.reminder, 10) : null
+            });
+
+          if (insertDocError) throw insertDocError;
+        }
+      }
+    }
+
+    // Handle maintenance if provided
+    if (maintenance && Array.isArray(maintenance)) {
+      // Get existing maintenance IDs
+      const { data: existingMaint } = await supabase
+        .from("maintenance_records")
+        .select("id")
+        .eq("asset_id", id);
+
+      const existingMaintIds = existingMaint?.map(m => m.id) || [];
+      const incomingMaintIds = maintenance.filter(m => m.id).map(m => m.id);
+
+      // Delete maintenance records that are not in the incoming list
+      const maintToDelete = existingMaintIds.filter(maintId => !incomingMaintIds.includes(maintId));
+      if (maintToDelete.length > 0) {
+        const { error: deleteMaintError } = await supabase
+          .from("maintenance_records")
+          .delete()
+          .in("id", maintToDelete);
+        
+        if (deleteMaintError) throw deleteMaintError;
+      }
+
+      // Update or insert maintenance records
+      for (const maint of maintenance) {
+        if (maint.id && existingMaintIds.includes(maint.id)) {
+          // Update existing maintenance
+          const { error: updateMaintError } = await supabase
+            .from("maintenance_records")
+            .update({
+              maintenance_type: maint.type,
+              last_service: maint.lastService,
+              next_due: maint.nextDue,
+              reminder_days: maint.interval ? parseInt(maint.interval, 10) : null
+            })
+            .eq("id", maint.id);
+
+          if (updateMaintError) throw updateMaintError;
+        } else if (!maint.id) {
+          // Insert new maintenance
+          const { error: insertMaintError } = await supabase
+            .from("maintenance_records")
+            .insert({
+              asset_id: id,
+              maintenance_type: maint.type,
+              last_service: maint.lastService,
+              next_due: maint.nextDue,
+              interval: maint.interval ? parseInt(maint.interval, 10) : null
+            });
+
+          if (insertMaintError) throw insertMaintError;
+        }
+      }
+    }
+
+    res.json({ message: "Vehicle updated successfully" });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getAdminProfile = async (req, res, next) => {
+    try {
+        const adminId = req.user.id;
+
+        const { data, error } = await supabase
+            .from("users")
+            .select("id, firstname, lastname, email, role, department_id, phone, address")
+            .eq("id", adminId)
+            .single();
+
+        if(error || !data){
+            return res.status(404).json({ error: "Admin profile not found" });
+        }
+        res.status(200).json(data);
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const updateAdminProfile = async (req, res, next) => {
+    try {
+        const adminId = req.user.id;
+        const { firstname, lastname, phone, address, date_of_birth } = req.body;
+        
+        // Build update object with only provided fields
+        const updateData = {};
+        if (firstname !== undefined) updateData.firstname = firstname;
+        if (lastname !== undefined) updateData.lastname = lastname;
+        if (phone !== undefined) updateData.phone = phone;
+        if (address !== undefined) updateData.address = address;
+
+        const { data, error } = await supabase
+            .from("users")
+            .update(updateData)
+            .eq("id", adminId)
+            .select()
+            .single();
+            
+        if(error){
+            return res.status(400).json({ error: error.message });
+        }
+
+        res.status(200).json({
+            message: "Profile updated successfully",
+            user: data,
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const deleteCar = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const department_id = req.user.department_id;
+
+    // First verify the vehicle belongs to this department
+    const { data: asset, error: assetError } = await supabase
+      .from("assets")
+      .select("id")
+      .eq("id", id)
+      .eq("department_id", department_id)
+      .single();
+
+    if (assetError || !asset) {
+      return res.status(404).json({ error: "Vehicle not found or access denied" });
+    }
+
+    // Delete document_renewals first (foreign key dependency)
+    await supabase
+      .from("document_renewals")
+      .delete()
+      .eq("asset_id", id);
+
+    // Delete documents
+    await supabase
+      .from("documents")
+      .delete()
+      .eq("asset_id", id);
+
+    // Delete maintenance records
+    await supabase
+      .from("maintenance_records")
+      .delete()
+      .eq("asset_id", id);
+
+    // Delete vehicle details
+    await supabase
+      .from("vehicle_details")
+      .delete()
+      .eq("asset_id", id);
+
+    // Finally delete the asset itself
+    const { error } = await supabase
+      .from("assets")
+      .delete()
+      .eq("id", id)
+      .eq("department_id", department_id);
+
+    if (error) throw error;
+
+    res.json({ message: "Vehicle and all related data deleted successfully" });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const getCarById = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const department_id = req.user.department_id;
+
+    // Fetch the asset (vehicle)
+    const { data: asset, error: assetError } = await supabase
+      .from("assets")
+      .select(`
+        id,
+        name,
+        status,
+        created_by,
+        assigned_user_id,
+        created_at,
+        vehicle_details (
+          id,
+          plate_number,
+          vin,
+          model,
+          staff_name,
+          staff_email,
+          year,
+          color
+        )
+      `)
+      .eq("id", id)
+      .eq("department_id", department_id)
+      .eq("asset_type", "vehicle")
+      .single();
+
+    if (assetError) throw assetError;
+    if (!asset) {
+      return res.status(404).json({ error: "Vehicle not found" });
+    }
+
+    // Fetch assigned user using assigned_user_id
+    let assignedUser = "Not Assigned";
+    if (asset.assigned_user_id) {
+      const { data: user } = await supabase
+        .from("users")
+        .select("firstname, lastname")
+        .eq("id", asset.assigned_user_id)
+        .single();
+      if (user) {
+        assignedUser = `${user.firstname} ${user.lastname}`;
+      }
+    }
+
+    // Fetch documents
+    const { data: documents } = await supabase
+      .from("documents")
+      .select("*")
+      .eq("asset_id", id)
+      .order("created_at", { ascending: false });
+
+    // Fetch maintenance records
+    const { data: maintenance } = await supabase
+      .from("maintenance_records")
+      .select("*")
+      .eq("asset_id", id)
+      .order("created_at", { ascending: false });
+
+    // Fetch activity/history (optional - table may not exist)
+    let history = [];
+    try {
+      const { data: historyData, error: historyError } = await supabase
+        .from("activity_logs")
+        .select("*")
+        .eq("asset_id", id)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      if (!historyError && historyData) {
+        history = historyData;
+      }
+    } catch (historyFetchError) {
+      console.log("Activity history not available:", historyFetchError.message);
+      history = [];
+    }
+
+    // Transform the data to match the expected format
+    const car = {
+      id: asset.id,
+      name: asset.name,
+      model: asset.vehicle_details?.[0]?.model || "",
+      plateNumber: asset.vehicle_details?.[0]?.plate_number || "",
+      vin: asset.vehicle_details?.[0]?.vin || "",
+      staff_email: asset.vehicle_details?.[0]?.staff_email || "",
+      staff_name: asset.vehicle_details?.[0]?.staff_name || "",
+      year: asset.vehicle_details?.[0]?.year || "",
+      color: asset.vehicle_details?.[0]?.color || "",
+      status: asset.status === "active" ? "Active" : "Inactive",
+      assignedUser: assignedUser,
+      assigned_user_id: asset.assigned_user_id,
+      createdAt: asset.created_at,
+      summary: {
+        totalDocuments: documents?.length || 0,
+        expiringSoon: documents?.filter(d => {
+          const daysUntilExpiry = Math.ceil((new Date(d.expiry_date) - new Date()) / (1000 * 60 * 60 * 24));
+          return daysUntilExpiry > 0 && daysUntilExpiry <= 30;
+        }).length || 0,
+        maintenanceDue: maintenance?.filter(m => {
+          if (!m.next_due) return false;
+          return new Date(m.next_due) <= new Date();
+        }).length || 0,
+        overdue: maintenance?.filter(m => {
+          if (!m.next_due) return false;
+          return new Date(m.next_due) < new Date();
+        }).length || 0
+      },
+      documents: documents?.map(doc => ({
+        id: doc.id,
+        name: doc.name,
+        issueDate: doc.issue_date,
+        expiryDate: doc.expiry_date,
+        reminder: doc.reminder_days
+      })) || [],
+      maintenance: maintenance?.map(m => ({
+        id: m.id,
+        type: m.maintenance_type,
+        lastService: m.last_service,
+        interval: m.interval,
+        nextDue: m.next_due
+      })) || [],
+      history: history?.map(h => ({
+        id: h.id,
+        action: h.action,
+        details: h.details,
+        date: h.created_at,
+        user: h.user_name || "System"
+      })) || []
+    };
+
+    res.json(car);
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const addVehicle = async (req, res, next) => {
+    try {
+        const adminId = req.user.id;
+        const { vehicle, documents, maintenance, department_id } = req.body;
+
+        if(!vehicle?.name || !vehicle?.plate_number || !vehicle?.vin){
+            return res.status(400).json({
+                error: "Vehicle name, plate number and vin number are required"
+            });
+        }
+
+        const departmentId = req.user.department_id;
+        
+        if (!departmentId) {
+            return res.status(400).json({
+                error: "Admin department not found"
+            });
+        }
+
+        // Check for duplicate plate_number within the same department
+        const { data: existingVehicles, error: duplicateError } = await supabase
+            .from("vehicle_details")
+            .select("id, plate_number, asset_id")
+            .eq("plate_number", vehicle.plate_number);
+
+        if (existingVehicles && existingVehicles.length > 0) {
+            const vehicleIds = existingVehicles.map(v => v.asset_id);
+            const { data: assets } = await supabase
+                .from("assets")
+                .select("id")
+                .in("id", vehicleIds)
+                .eq("department_id", departmentId);
+            
+            if (assets && assets.length > 0) {
+                return res.status(400).json({
+                    error: "A vehicle with this plate number already exists in your department"
+                });
+            }
+        }
+
+        // Insert asset
+        const { data: newAsset, error: assetError } = await supabase
+            .from("assets")
+            .insert({
+                department_id: departmentId,
+                name: vehicle.name,
+                asset_type: "vehicle",
+                status: vehicle.status || "active",
+                created_by: adminId,
+                assigned_user_id: vehicle.assigned_user_id || null
+            })
+            .select()
+            .single();
+        if(assetError){
+            return res.status(400).json({ error: assetError.message });
+        }
+
+        const assetId = newAsset.id;
+
+        // Insert vehicle details
+        const { error: vehicleError } = await supabase
+            .from("vehicle_details")
+            .insert({
+                asset_id: assetId,
+                plate_number: vehicle.plate_number,
+                vin: vehicle.vin,
+                staff_name: vehicle.staff_name,
+                staff_email: vehicle.staff_email,
+                model: vehicle.model,
+                year: parseInt(vehicle.year, 10),
+                color: vehicle.color
+            });
+        if(vehicleError){
+            return res.status(400).json({ error: vehicleError.message });
+        }
+
+        // Insert documents
+        if(documents?.length){
+            const docs = documents.map(doc => ({
+                asset_id: assetId,
+                name: doc.name,
+                issue_date: doc.issueDate || null,
+                expiry_date: doc.expiryDate || null,
+                reminder_days: doc.reminder ? parseInt(doc.reminder, 10) : null
+            }));
+            
+            const { error: docsError } = await supabase.from("documents").insert(docs);
+            if(docsError){
+                return res.status(400).json({ error: "Failed to insert documents: " + docsError.message });
+            }
+        }
+
+        // Insert maintenance
+        if(maintenance?.length){
+            const maint = maintenance.map(item => ({
+                asset_id: assetId,
+                maintenance_type: item.type,
+                last_service: item.lastService || null,
+                next_due: item.nextDue || null,
+                reminder_days: parseInt(item.interval, 10)
+            }));
+
+            const { error: maintError } = await supabase.from("maintenance_records").insert(maint);
+            if(maintError){
+                return res.status(400).json({ error: "Failed to insert maintenance: " + maintError.message });
+            }
+        }
+
+        res.status(201).json({
+            message: "Vehicle added successfully"
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const getAllDocuments = async (req, res, next) => {
+    try {
+        const department_id = req.user.department_id;
+
+        // Fetch all documents with their associated vehicle information
+        const { data: documents, error } = await supabase
+            .from("documents")
+            .select(`
+                id,
+                name,
+                issue_date,
+                expiry_date,
+                reminder_days,
+                asset_id,
+                assets (
+                    id,
+                    name,
+                    department_id,
+                    vehicle_details (
+                        plate_number
+                    )
+                )
+            `)
+            .eq("assets.department_id", department_id);
+
+        if (error) throw error;
+
+        // Transform the data to match the frontend expectations
+        const transformedDocuments = documents.map(doc => ({
+            id: doc.id,
+            carName: doc.assets?.name || "Unknown",
+            car: doc.assets ? {
+                name: doc.assets.name,
+                plate_number: doc.assets.vehicle_details?.[0]?.plate_number || ""
+            } : null,
+            plateNumber: doc.assets?.vehicle_details?.[0]?.plate_number || "",
+            plate_number: doc.assets?.vehicle_details?.[0]?.plate_number || "",
+            documentType: doc.name,
+            name: doc.name,
+            issueDate: doc.issue_date,
+            issue_date: doc.issue_date,
+            expiryDate: doc.expiry_date,
+            expiry_date: doc.expiry_date
+        }));
+
+        res.json(transformedDocuments);
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const addDocument = async (req, res, next) => {
+    try {
+        const { carId, documentName, issueDate, expiryDate, reminder } = req.body;
+        const department_id = req.user.department_id;
+
+        if (!carId || !documentName || !issueDate || !expiryDate) {
+            return res.status(400).json({ 
+                error: "Car, document name, issue date, and expiry date are required" 
+            });
+        }
+
+        // Verify the vehicle belongs to the admin's department
+        const { data: vehicle, error: vehicleError } = await supabase
+            .from("assets")
+            .select("id, name")
+            .eq("id", carId)
+            .eq("department_id", department_id)
+            .eq("asset_type", "vehicle")
+            .single();
+
+        if (vehicleError || !vehicle) {
+            return res.status(404).json({ error: "Vehicle not found or access denied" });
+        }
+
+        // Insert the document
+        const { data: newDocument, error: documentError } = await supabase
+            .from("documents")
+            .insert({
+                asset_id: carId,
+                name: documentName,
+                issue_date: issueDate,
+                expiry_date: expiryDate,
+                reminder_days: reminder ? parseInt(reminder, 10) : null
+            })
+            .select()
+            .single();
+
+        if (documentError) throw documentError;
+
+        res.status(201).json({
+            message: "Document added successfully",
+            document: newDocument
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const getAllMaintenance = async (req, res, next) => {
+    try {
+        const department_id = req.user.department_id;
+
+        // Fetch all maintenance records with their associated vehicle information
+        const { data: maintenance, error } = await supabase
+            .from("maintenance_records")
+            .select(`
+                id,
+                maintenance_type,
+                last_service,
+                next_due,
+                reminder_days,
+                asset_id,
+                assets (
+                    id,
+                    name,
+                    department_id,
+                    vehicle_details (
+                        plate_number
+                    )
+                )
+            `)
+            .eq("assets.department_id", department_id);
+
+        if (error) throw error;
+
+        // Transform the data to match the frontend expectations
+        const transformedMaintenance = maintenance.map(record => ({
+            id: record.id,
+            carName: record.assets?.name || "Unknown",
+            car: record.assets ? {
+                name: record.assets.name,
+                plate_number: record.assets.vehicle_details?.[0]?.plate_number || ""
+            } : null,
+            plateNumber: record.assets?.vehicle_details?.[0]?.plate_number || "",
+            // plate_number: record.assets?.vehicle_details?.[0]?.plate_number || "",
+            serviceType: record.maintenance_type,
+            maintenance_type: record.maintenance_type,
+            type: record.maintenance_type,
+            lastService: record.last_service,
+            last_service: record.last_service,
+            nextDue: record.next_due,
+            next_due: record.next_due,
+            reminder_days: record.interval
+        }));
+
+        res.json(transformedMaintenance);
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const addMaintenance = async (req, res, next) => {
+    try {
+        const { carId, serviceType, lastService, nextDue, interval } = req.body;
+        const department_id = req.user.department_id;
+
+        if (!carId || !serviceType || !lastService || !nextDue) {
+            return res.status(400).json({ 
+                error: "Car, service type, last service date, and next due date are required" 
+            });
+        }
+
+        // Verify the vehicle belongs to the admin's department
+        const { data: vehicle, error: vehicleError } = await supabase
+            .from("assets")
+            .select("id, name")
+            .eq("id", carId)
+            .eq("department_id", department_id)
+            .eq("asset_type", "vehicle")
+            .single();
+
+        if (vehicleError || !vehicle) {
+            return res.status(404).json({ error: "Vehicle not found or access denied" });
+        }
+
+        // Insert the maintenance record
+        const { data: newMaintenance, error: maintenanceError } = await supabase
+            .from("maintenance_records")
+            .insert({
+                asset_id: carId,
+                maintenance_type: serviceType,
+                last_service: lastService,
+                next_due: nextDue,
+                reminder_days: interval ? parseInt(interval, 10) : null
+            })
+            .select()
+            .single();
+
+        if (maintenanceError) throw maintenanceError;
+
+        res.status(201).json({
+            message: "Maintenance record added successfully",
+            maintenance: newMaintenance
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const assignCarToUser = async (req, res, next) => {
+    try {
+        const { userId } = req.params;
+        const { carId } = req.body;
+        const adminDepartmentId = req.user.department_id;
+
+        if (!carId) {
+            return res.status(400).json({ error: "Car ID is required" });
+        }
+
+        // Verify the user exists and belongs to the same department
+        const { data: user, error: userError } = await supabase
+            .from("users")
+            .select("id, firstname, lastname, department_id")
+            .eq("id", userId)
+            .single();
+
+        if (userError || !user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        if (user.department_id !== adminDepartmentId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+
+        // Verify the vehicle exists and belongs to the admin's department
+        const { data: vehicle, error: vehicleError } = await supabase
+            .from("assets")
+            .select("id, name, assigned_user_id")
+            .eq("id", carId)
+            .eq("department_id", adminDepartmentId)
+            .eq("asset_type", "vehicle")
+            .single();
+
+        if (vehicleError || !vehicle) {
+            return res.status(404).json({ error: "Vehicle not found or access denied" });
+        }
+
+        // Update the vehicle to assign it to the user using assigned_user_id
+        const { error: updateError } = await supabase
+            .from("assets")
+            .update({ assigned_user_id: userId })
+            .eq("id", carId);
+
+        if (updateError) throw updateError;
+
+        res.json({ 
+            message: `Car successfully assigned to ${user.firstname} ${user.lastname}`,
+            carId,
+            userId
+        });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const unassignCarFromUser = async (req, res, next) => {
+    try {
+        const { carId } = req.params;
+        const adminDepartmentId = req.user.department_id;
+
+        // Verify the vehicle exists and belongs to the admin's department
+        const { data: vehicle, error: vehicleError } = await supabase
+            .from("assets")
+            .select("id, name, assigned_user_id")
+            .eq("id", carId)
+            .eq("department_id", adminDepartmentId)
+            .eq("asset_type", "vehicle")
+            .single();
+
+        if (vehicleError || !vehicle) {
+            return res.status(404).json({ error: "Vehicle not found or access denied" });
+        }
+
+        // Unassign the vehicle by setting assigned_user_id to null
+        const { error: updateError } = await supabase
+            .from("assets")
+            .update({ assigned_user_id: null })
+            .eq("id", carId);
+
+        if (updateError) throw updateError;
+
+        res.json({ message: "Car successfully unassigned" });
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const getAvailableCars = async (req, res, next) => {
+    try {
+        const adminDepartmentId = req.user.department_id;
+
+        // Fetch all vehicles in the department with their current assignment
+        const { data: assets, error: assetsError } = await supabase
+            .from("assets")
+            .select(`
+                id,
+                name,
+                status,
+                assigned_user_id,
+                vehicle_details (
+                    id,
+                    plate_number,
+                    model,
+                    year,
+                    color
+                )
+            `)
+            .eq("department_id", adminDepartmentId)
+            .eq("asset_type", "vehicle")
+            .eq("status", "active");
+
+        if (assetsError) throw assetsError;
+
+        // Get user IDs to fetch user details
+        const userIds = [...new Set(assets?.map(a => a.assigned_user_id).filter(Boolean) || [])];
+
+        let usersMap = {};
+        if (userIds.length > 0) {
+            const { data: users } = await supabase
+                .from("users")
+                .select("id, firstname, lastname")
+                .in("id", userIds);
+
+            if (users) {
+                usersMap = users.reduce((acc, user) => {
+                    acc[user.id] = `${user.firstname} ${user.lastname}`;
+                    return acc;
+                }, {});
+            }
+        }
+
+        // Transform the data
+        const cars = assets?.map(asset => ({
+            id: asset.id,
+            name: asset.name,
+            plate_number: asset.vehicle_details?.[0]?.plate_number || "",
+            model: asset.vehicle_details?.[0]?.model || "",
+            year: asset.vehicle_details?.[0]?.year || "",
+            color: asset.vehicle_details?.[0]?.color || "",
+            assignedTo: asset.assigned_user_id ? usersMap[asset.assigned_user_id] || "Unknown" : null,
+            assignedToId: asset.assigned_user_id,
+            assigned_user_id: asset.assigned_user_id,
+            isAssigned: !!asset.assigned_user_id
+        })) || [];
+
+        res.json(cars);
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const getNotifications = async (req, res, next) => {
+    try {
+        const department_id = req.user.department_id;
+        
+        const { data: documents, error: docsError } = await supabase
+            .from("documents")
+            .select(`
+                id, name, issue_date, expiry_date, asset_id,
+                assets (id, name, vehicle_details (plate_number))
+            `)
+            .eq("assets.department_id", department_id);
+
+        if (docsError) throw docsError;
+
+        const { data: maintenance, error: maintError } = await supabase
+            .from("maintenance_records")
+            .select(`
+                id, maintenance_type, next_due, last_service, asset_id,
+                assets (id, name, vehicle_details (plate_number))
+            `)
+            .eq("assets.department_id", department_id);
+
+        if (maintError) throw maintError;
+
+        const notifications = [];
+        const now = new Date();
+        
+        documents?.forEach(doc => {
+            if (!doc.expiry_date) return;
+            
+            const daysUntilExpiry = Math.ceil((new Date(doc.expiry_date) - now) / (1000 * 60 * 60 * 24));
+            const vehicleName = doc.assets?.name || "Unknown";
+            const plateNumber = doc.assets?.vehicle_details?.[0]?.plate_number || "";
+            
+            let level = "info";
+            if (daysUntilExpiry < 0 || daysUntilExpiry <= 7) {
+                level = "critical";
+            } else if (daysUntilExpiry <= 30) {
+                level = "warning";
+            }
+            
+            if (daysUntilExpiry <= 30) {
+                notifications.push({
+                    id: `doc-${doc.id}`,
+                    type: "document",
+                    level,
+                    title: daysUntilExpiry < 0 ? `${doc.name} Expired` : `${doc.name} Expiring Soon`,
+                    description: `${vehicleName} (${plateNumber}) - ${daysUntilExpiry < 0 ? `Expired ${Math.abs(daysUntilExpiry)} days ago` : `Expires in ${daysUntilExpiry} days`}`,
+                    date: doc.expiry_date,
+                    read: false,
+                    relatedId: doc.id,
+                    relatedType: "document"
+                });
+            }
+        });
+
+        maintenance?.forEach(maint => {
+            if (!maint.next_due) return;
+            
+            const daysUntilDue = Math.ceil((new Date(maint.next_due) - now) / (1000 * 60 * 60 * 24));
+            const vehicleName = maint.assets?.name || "Unknown";
+            const plateNumber = maint.assets?.vehicle_details?.[0]?.plate_number || "";
+            
+            let level = "info";
+            if (daysUntilDue < 0) {
+                level = "critical";
+            } else if (daysUntilDue <= 7) {
+                level = "warning";
+            }
+            
+            if (daysUntilDue <= 30) {
+                notifications.push({
+                    id: `maint-${maint.id}`,
+                    type: "maintenance",
+                    level,
+                    title: daysUntilDue < 0 ? `${maint.maintenance_type} Overdue` : `${maint.maintenance_type} Due Soon`,
+                    description: `${vehicleName} (${plateNumber}) - ${daysUntilDue < 0 ? `Overdue by ${Math.abs(daysUntilDue)} days` : `Due in ${daysUntilDue} days`}`,
+                    date: maint.next_due,
+                    read: false,
+                    relatedId: maint.id,
+                    relatedType: "maintenance"
+                });
+            }
+        });
+
+        const levelOrder = { critical: 0, warning: 1, info: 2 };
+        notifications.sort((a, b) => {
+            if (levelOrder[a.level] !== levelOrder[b.level]) {
+                return levelOrder[a.level] - levelOrder[b.level];
+            }
+            return new Date(a.date) - new Date(b.date);
+        });
+
+        res.json(notifications);
+    } catch (err) {
+        next(err);
+    }
+};
+
+export const markNotificationRead = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const [type] = id.split('-');
+        
+        if (type === 'doc') {
+            res.json({ message: "Document notification marked as read" });
+        } else if (type === 'maint') {
+            res.json({ message: "Maintenance notification marked as read" });
+        } else {
+            return res.status(400).json({ error: "Invalid notification type" });
+        }
+    } catch (err) {
+        next(err);
+    }
+};
