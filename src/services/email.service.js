@@ -13,6 +13,8 @@ export const sendEmail = async ({ to, subject, html }) => {
 
         console.log("Email sent to:", to);
     } catch (error) {
-        console.error("Email errror:", error);
+        console.error("Email error:", error);
+        // Add more logging for debugging
+        console.error("Resend API error details:", error.response?.data || error.message);
     }
 };
