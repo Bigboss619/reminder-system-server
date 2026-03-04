@@ -22,8 +22,20 @@ export const supabase = createClient(
     }
 );
 
-// Warm up the database connection on startup
-export const warmUpConnection = async () => {
+// Track connection status to avoid unnecessary queries
+let isConnectionWarmedUp = false;
+let lastWarmUpTime = 0;
+const WARMUP_CACHE_DURATION = 60000; // 1 minute cache
+
+// Warm up the database connection on startup and on demand
+export const warmUpConnection = async (force = false) => {
+    const now = Date.now();
+    
+    // Skip if recently warmed up (within cache duration) and not forced
+    if (!force && isConnectionWarmedUp && (now - lastWarmUpTime) < WARMUP_CACHE_DURATION) {
+        return true;
+    }
+    
     try {
         console.log("🔥 Warming up Supabase connection...");
         
@@ -35,13 +47,17 @@ export const warmUpConnection = async () => {
         
         if (error) {
             console.error("❌ Connection warm-up failed:", error.message);
+            isConnectionWarmedUp = false;
             return false;
         }
         
+        isConnectionWarmedUp = true;
+        lastWarmUpTime = now;
         console.log("✅ Supabase connection warmed up successfully!");
         return true;
     } catch (err) {
         console.error("❌ Connection warm-up error:", err.message);
+        isConnectionWarmedUp = false;
         return false;
     }
 };

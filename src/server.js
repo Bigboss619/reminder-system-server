@@ -14,6 +14,18 @@ dotenv.config({ path: path.resolve(__dirname, './.env') });
 // --- Start the server ---
 const PORT = process.env.PORT || 5000;
 
+// Middleware to ensure database connection is warm on every request
+app.use(async (req, res, next) => {
+    // Skip health check and root endpoints to avoid infinite loops
+    if (req.path === '/health' || req.path === '/') {
+        return next();
+    }
+    
+    // Ensure connection is warmed up before processing request (force on first call)
+    await warmUpConnection(true);
+    next();
+});
+
 // Health check endpoint that also warms up the connection
 app.get("/health", async (req, res) => {
     try {
@@ -35,7 +47,7 @@ app.get("/", (req, res) => {
 // Start server with connection warm-up
 const startServer = async () => {
     // Warm up Supabase connection before accepting requests
-    await warmUpConnection();
+    await warmUpConnection(true);
     
     // Start the cron job
     startReminderCron();
@@ -47,3 +59,4 @@ const startServer = async () => {
 };
 
 startServer();
+
