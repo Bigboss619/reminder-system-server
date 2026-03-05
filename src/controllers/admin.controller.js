@@ -1523,3 +1523,108 @@ export const markNotificationRead = async (req, res, next) => {
         next(err);
     }
 };
+
+export const getDashboardStats = async (req, res, next) => {
+    try {
+        const department_id = req.user.department_id;
+        const now = new Date();
+        const thirtyDaysFromNow = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+        // Get all vehicles in the department
+        const { data: vehicles, error: vehiclesError } = await supabase
+            .from("assets")
+            .select("id")
+            .eq("department_id", department_id)
+            .eq("asset_type", "vehicle");
+
+        if (vehiclesError) throw vehiclesError;
+
+        const vehicleIds = vehicles?.map(v => v.id) || [];
+
+        // Get total active users in the department
+        const { count: activeUsersCount, error: usersError } = await supabase
+            .from("users")
+            .select("*", { count: 'exact', head: true })
+            .eq("department_id", department_id)
+            .neq("role", "admin")
+            .eq("status", "active");
+
+        if (usersError) throw usersError;
+
+        // Get documents stats
+        let totalDocuments = 0;
+        let expiredDocuments = 0;
+        let validDocuments = 0;
+        let docsExpiringSoon = 0;
+
+        if (vehicleIds.length > 0) {
+            const { data: documents, error: docsError } = await supabase
+                .from("documents")
+                .select("id, expiry_date")
+                .in("asset_id", vehicleIds);
+
+            if (docsError) throw docsError;
+
+            totalDocuments = documents?.length || 0;
+
+            documents?.forEach(doc => {
+                if (!doc.expiry_date) {
+                    validDocuments++;
+                } else {
+                    const expiryDate = new Date(doc.expiry_date);
+                    if (expiryDate < now) {
+                        expiredDocuments++;
+                    } else if (expiryDate <= thirtyDaysFromNow) {
+                        docsExpiringSoon++;
+                    } else {
+                        validDocuments++;
+                    }
+                }
+            });
+        }
+
+        // Get maintenance stats
+        let totalMaintenance = 0;
+        let maintenanceDue = 0;
+        let overdueMaintenance = 0;
+
+        if (vehicleIds.length > 0) {
+            const { data: maintenance, error: maintError } = await supabase
+                .from("maintenance_records")
+                .select("id, next_due")
+                .in("asset_id", vehicleIds);
+
+            if (maintError) throw maintError;
+
+            totalMaintenance = maintenance?.length || 0;
+
+            maintenance?.forEach(maint => {
+                if (!maint.next_due) {
+                    maintenanceDue++;
+                } else {
+                    const dueDate = new Date(maint.next_due);
+                    if (dueDate < now) {
+                        overdueMaintenance++;
+                    } else if (dueDate <= thirtyDaysFromNow) {
+                        maintenanceDue++;
+                    }
+                }
+            });
+        }
+
+        // Return the stats matching the frontend expected format
+        res.json({
+            totalCars: vehicleIds.length,
+            activeUsers: activeUsersCount || 0,
+            docsExpiringSoon,
+            maintenanceDue,
+            overdueItems: overdueMaintenance,
+            totalDocuments,
+            expiredDocuments,
+            validDocuments,
+            totalMaintenance
+        });
+    } catch (err) {
+        next(err);
+    }
+};

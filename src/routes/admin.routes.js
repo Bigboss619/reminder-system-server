@@ -1,10 +1,13 @@
 import express from "express";
-import { createAdminUsersByAdmin, getAllUsersByAdmin, getCars, getCarById, updateCar, deleteCar, getAdminProfile, updateAdminProfile, changePassword, addVehicle, getAllDocuments, addDocument, getAllMaintenance, addMaintenance, getUserById, updateUserStatus, deleteUser, assignCarToUser, unassignCarFromUser, getAvailableCars, getNotifications, markNotificationRead } from "../controllers/admin.controller.js";
+import { createAdminUsersByAdmin, getAllUsersByAdmin, getCars, getCarById, updateCar, deleteCar, getAdminProfile, updateAdminProfile, changePassword, addVehicle, getAllDocuments, addDocument, getAllMaintenance, addMaintenance, getUserById, updateUserStatus, deleteUser, assignCarToUser, unassignCarFromUser, getAvailableCars, getNotifications, markNotificationRead, getDashboardStats } from "../controllers/admin.controller.js";
 import { requireRole } from "../middlewares/requireRole.js";
 import { authenticate } from "../middlewares/auth.middleware.js";
 import { departmentGuard } from "../middlewares/departmentGuard.js";
 
 const router = express.Router();
+
+// Dashboard stats route
+router.get("/dashboard-stats", authenticate, requireRole("admin"), departmentGuard, getDashboardStats);
 
 // Profile routes - only need authentication and role check (no department guard needed)
 router.get("/profile", authenticate, requireRole("admin"), getAdminProfile);
