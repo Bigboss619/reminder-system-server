@@ -521,6 +521,7 @@ export const updateUserMaintenance = async (req, res, next) => {
         const { data: updatedRecord, error: updateError } = await supabase
             .from("maintenance_records")
             .update({
+                user_id: userId,
                 last_service: lastServiceDate,
                 next_due: nextDueDate,
                 notes: notes || null
