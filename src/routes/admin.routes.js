@@ -6,6 +6,7 @@ import { departmentGuard } from "../middlewares/departmentGuard.js";
 
 const router = express.Router();
 
+
 // Dashboard stats route
 router.get("/dashboard-stats", authenticate, requireRole("admin"), departmentGuard, getDashboardStats);
 
