@@ -55,9 +55,7 @@ export const getUserById = async (req, res, next) => {
         // Fetch user by ID
         const { data: user, error: userError } = await supabase
             .from("users")
-            .select("*")
-            .eq("id", id)
-            .single();
+            .select("*");
 
         if (userError || !user) {
             return res.status(404).json({ error: "User not found" });
