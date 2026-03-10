@@ -4,6 +4,7 @@ import assetRoutes from './routes/asset.routes.js';
 import authRoutes from './routes/auth.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import userRoutes from './routes/user.routes.js';
+import settingsRoutes from './routes/settings.routes.js';
 import errorMiddleware from './middlewares/error.midlleware.js'
 
 const app = express();
@@ -15,6 +16,7 @@ app.use("/api/assets", assetRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api/admin", settingsRoutes);
 
 app.use(errorMiddleware);
 

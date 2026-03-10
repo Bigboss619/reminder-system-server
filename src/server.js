@@ -21,6 +21,9 @@ app.use(async (req, res, next) => {
         return next();
     }
     
+    // Log JWT_SECRET to verify it's loaded (for debugging cold start issues)
+    console.log("🔐 JWT_SECRET loaded:", !!process.env.JWT_SECRET);
+    
     // Ensure connection is warmed up before processing request (force on first call)
     await warmUpConnection(true);
     next();

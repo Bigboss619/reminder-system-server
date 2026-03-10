@@ -1,11 +1,33 @@
 import express from "express";
-import { createAdminUsersByAdmin, getAllUsersByAdmin, getCars, getCarById, updateCar, deleteCar, getAdminProfile, updateAdminProfile, changePassword, addVehicle, getAllDocuments, addDocument, getAllMaintenance, addMaintenance, getUserById, updateUserStatus, deleteUser, assignCarToUser, unassignCarFromUser, getAvailableCars, getNotifications, markNotificationRead, getDashboardStats } from "../controllers/admin.controller.js";
+import { createAdminUsersByAdmin, getAllUsersByAdmin, getCars, getCarById, updateCar, deleteCar, getAdminProfile, updateAdminProfile, changePassword, addVehicle, getAllDocuments, addDocument, getAllMaintenance, addMaintenance, getUserById, updateUserStatus, deleteUser, assignCarToUser, unassignCarFromUser, getAvailableCars, getNotifications, markNotificationRead, getDashboardStats, batchUploadVehiclesAdmin, getVehicleTemplateAdmin } from "../controllers/admin.controller.js";
 import { requireRole } from "../middlewares/requireRole.js";
 import { authenticate } from "../middlewares/auth.middleware.js";
 import { departmentGuard } from "../middlewares/departmentGuard.js";
+import multer from "multer";
+
+// Configure multer for file uploads
+const storage = multer.memoryStorage();
+const upload = multer({ 
+    storage: storage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+        // Only accept Excel files
+        const allowedTypes = [
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', // .xlsx
+            'application/vnd.ms-excel', // .xls
+            'application/excel'
+        ];
+        if (allowedTypes.includes(file.mimetype) || 
+            file.originalname.endsWith('.xlsx') || 
+            file.originalname.endsWith('.xls')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only Excel files (.xlsx, .xls) are allowed'), false);
+        }
+    }
+});
 
 const router = express.Router();
-
 
 // Dashboard stats route
 router.get("/dashboard-stats", authenticate, requireRole("admin"), departmentGuard, getDashboardStats);
@@ -23,6 +45,10 @@ router.post("/create-user", authenticate, requireRole("admin"), departmentGuard,
 // router.post("/cars", authenticate, requireRole("admin"), departmentGuard, createCar);
 
 router.post("/vehicle", authenticate, requireRole("admin"), departmentGuard, addVehicle);
+
+// Batch upload routes
+router.get("/vehicle/template", authenticate, requireRole("admin"), departmentGuard, getVehicleTemplateAdmin);
+router.post("/vehicle/batch", authenticate, requireRole("admin"), departmentGuard, upload.single("file"), batchUploadVehiclesAdmin);
 
 router.get("/users/:department", authenticate, requireRole("admin"), departmentGuard, getAllUsersByAdmin);
 

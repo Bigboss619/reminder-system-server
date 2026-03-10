@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import { supabase } from "../config/supabase.js";
 import { notifyVehicleEvent } from "../services/notification.service.js";
+import { parseExcelFile, checkDuplicateVINs, checkExistingVehicles, generateTemplate } from "../services/excel.services.js";
 
 // Get user profile
 export const getUserProfile = async (req, res, next) => {
@@ -517,7 +518,7 @@ export const updateUserMaintenance = async (req, res, next) => {
             return res.status(403).json({ error: "Access denied. This vehicle is not assigned to you." });
         }
 
-        // Update the maintenance record
+        // Update the maintenance records
         const { data: updatedRecord, error: updateError } = await supabase
             .from("maintenance_records")
             .update({
@@ -564,7 +565,7 @@ export const addUserMaintenance = async (req, res, next) => {
         // Verify the vehicle is assigned to this user
         const { data: vehicle, error: vehicleError } = await supabase
             .from("assets")
-            .select("id")
+            .select("id, department_id")
             .eq("id", vehicleId)
             .eq("assigned_user_id", userId)
             .eq("asset_type", "vehicle")
@@ -574,16 +575,36 @@ export const addUserMaintenance = async (req, res, next) => {
             return res.status(403).json({ error: "Access denied. This vehicle is not assigned to you." });
         }
 
+        // Get department settings for default reminder days
+        let reminderDays = 7;
+        try {
+            const { data: settings, error: settingsError } = await supabase
+                .from("department_settings")
+                .select("maintenance_reminder_days")
+                .eq("department_id", vehicle.department_id)
+                .maybeSingle();
+            
+            if (!settingsError && settings) {
+                reminderDays = settings.maintenance_reminder_days || 7;
+            }
+        } catch (settingsErr) {
+            console.log("Error fetching settings:", settingsErr.message);
+        }
+
+        // Use maintenanceInterval from request if provided, otherwise use default from settings
+        const finalReminderDays = maintenanceInterval ? parseInt(maintenanceInterval, 10) : reminderDays;
+
         // Insert the Maintenance
         const { data: newMaintenance, error: maintError } = await supabase
             .from("maintenance_records")
             .insert({
+                user_id: userId,
                 asset_id: vehicleId,
                 maintenance_type: name,
                 last_service: lastServiceDate || null,
                 next_due: nextServiceDate || null,
                 notes: noteSummary || null,
-                reminder_days: maintenanceInterval ? parseInt(maintenanceInterval, 10) : null,
+                reminder_days: finalReminderDays,
                 performed_by: userId
             })
             .select()
@@ -785,6 +806,24 @@ export const addUserVehicle = async (req, res, next) => {
 
         const departmentId = user.department_id;
 
+        // Get department settings for default reminder days
+        let defaultDocReminderDays = 30;
+        let defaultMaintReminderDays = 7;
+        try {
+            const { data: settings, error: settingsError } = await supabase
+                .from("department_settings")
+                .select("document_reminder_days, maintenance_reminder_days")
+                .eq("department_id", departmentId)
+                .maybeSingle();
+
+            if (!settingsError && settings) {
+                defaultDocReminderDays = settings.document_reminder_days || 30;
+                defaultMaintReminderDays = settings.maintenance_reminder_days || 7;
+            }
+        } catch (settingsErr) {
+            console.log("Error fetching settings:", settingsErr.message);
+        }
+
         // Check for duplicate plate_number within the same department
         const { data: existingVehicles, error: duplicateError } = await supabase
             .from("vehicle_details")
@@ -854,7 +893,8 @@ export const addUserVehicle = async (req, res, next) => {
                     // document_number: doc.number || null,
                     issue_date: doc.issueDate || null,
                     expiry_date: doc.expiryDate || null,
-                    reminder_days: doc.reminder ? parseInt(doc.reminder, 10) : null
+                    reminder_days: doc.reminder ? parseInt(doc.reminder, 10) : defaultDocReminderDays,
+                    uploaded_by: userId
                 }));
             
             if (docs.length > 0) {
@@ -870,11 +910,13 @@ export const addUserVehicle = async (req, res, next) => {
             const maint = maintenance
                 .filter(item => item.type) // Only include maintenance with a type
                 .map(item => ({
+                    user_id: userId,
                     asset_id: assetId,
                     maintenance_type: item.type,
                     last_service: item.lastService || null,
                     next_due: item.nextDue || null,
-                    reminder_days: item.interval ? parseInt(item.interval, 10) : null
+                    reminder_days: defaultMaintReminderDays,
+                    performed_by: userId
                 }));
 
             if (maint.length > 0) {
@@ -1273,6 +1315,237 @@ export const deleteUserMaintenance = async (req, res, next) => {
 
         res.status(200).json({ message: "Maintenance record deleted successfully" });
     } catch (error) {
+        next(error);
+    }
+};
+
+// Batch upload vehicles from Excel file
+export const batchUploadVehicles = async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        
+        // Check if file was uploaded
+        if (!req.file) {
+            return res.status(400).json({ error: "No file uploaded" });
+        }
+
+        // Get user's department
+        const { data: user, error: userError } = await supabase
+            .from("users")
+            .select("department_id")
+            .eq("id", userId)
+            .single();
+
+        if (userError || !user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        const departmentId = user.department_id;
+
+        // Get department settings for default reminder days
+        let defaultDocReminderDays = 30;
+        let defaultMaintReminderDays = 7;
+        try {
+            const { data: settings, error: settingsError } = await supabase
+                .from("department_settings")
+                .select("document_reminder_days, maintenance_reminder_days")
+                .eq("department_id", departmentId)
+                .maybeSingle();
+
+            if (!settingsError && settings) {
+                defaultDocReminderDays = settings.document_reminder_days || 30;
+                defaultMaintReminderDays = settings.maintenance_reminder_days || 7;
+            }
+        } catch (settingsErr) {
+            console.log("Error fetching settings:", settingsErr.message);
+        }
+
+        // Import Excel parsing functions (using static import now)
+        // parseExcelFile, checkDuplicateVINs, checkExistingVehicles are now imported at the top
+
+        // Parse the Excel file
+        const fileBuffer = req.file.buffer;
+        const parseResult = parseExcelFile(fileBuffer);
+
+        // Return validation errors if any
+        if (parseResult.errors && parseResult.errors.length > 0) {
+            return res.status(400).json({
+                error: "Validation failed",
+                validationErrors: parseResult.errors,
+                warnings: parseResult.warnings
+            });
+        }
+
+        // Check for duplicate VINs within the Excel file
+        const duplicateVINErrors = checkDuplicateVINs(parseResult.vehicles);
+        if (duplicateVINErrors.length > 0) {
+            return res.status(400).json({
+                error: "Duplicate VINs found in Excel file",
+                validationErrors: duplicateVINErrors
+            });
+        }
+
+        // Check for existing vehicles in database
+        const existingVehicleErrors = await checkExistingVehicles(
+            parseResult.vehicles, 
+            supabase, 
+            departmentId
+        );
+        
+        if (existingVehicleErrors.length > 0) {
+            return res.status(400).json({
+                error: "Vehicle already exists",
+                validationErrors: existingVehicleErrors
+            });
+        }
+
+        // If preview mode, return the parsed data
+        if (req.query.preview === "true") {
+            return res.status(200).json({
+                preview: true,
+                totalRows: parseResult.totalRows,
+                vehicles: parseResult.vehicles,
+                warnings: parseResult.warnings
+            });
+        }
+
+        // Process and insert each vehicle
+        const insertedVehicles = [];
+        const failedVehicles = [];
+
+        for (const vehicleData of parseResult.vehicles) {
+            try {
+                const { vehicle, documents, maintenance } = vehicleData;
+
+                // Insert asset
+                const { data: newAsset, error: assetError } = await supabase
+                    .from("assets")
+                    .insert({
+                        department_id: departmentId,
+                        name: vehicle.name,
+                        asset_type: "vehicle",
+                        status: vehicle.status || "active",
+                        created_by: userId,
+                        assigned_user_id: userId
+                    })
+                    .select()
+                    .single();
+
+                if (assetError) {
+                    failedVehicles.push({
+                        row: vehicleData.rowNum,
+                        name: vehicle.name,
+                        error: assetError.message
+                    });
+                    continue;
+                }
+
+                const assetId = newAsset.id;
+
+                // Insert vehicle details
+                const { error: vehicleError } = await supabase
+                    .from("vehicle_details")
+                    .insert({
+                        asset_id: assetId,
+                        plate_number: vehicle.plate_number,
+                        vin: vehicle.vin,
+                        staff_name: vehicle.staff_name,
+                        staff_email: vehicle.staff_email,
+                        model: vehicle.model,
+                        year: vehicle.year,
+                        color: vehicle.color
+                    });
+
+                if (vehicleError) {
+                    // Rollback asset creation
+                    await supabase.from("assets").delete().eq("id", assetId);
+                    failedVehicles.push({
+                        row: vehicleData.rowNum,
+                        name: vehicle.name,
+                        error: vehicleError.message
+                    });
+                    continue;
+                }
+
+                // Insert documents
+                if (documents && documents.length > 0) {
+                    const docs = documents.map(doc => ({
+                        asset_id: assetId,
+                        name: doc.name,
+                        issue_date: doc.issueDate || null,
+                        expiry_date: doc.expiryDate || null,
+                        reminder_days: doc.reminder || defaultDocReminderDays,
+                        uploaded_by: userId
+                    }));
+
+                    const { error: docsError } = await supabase.from("documents").insert(docs);
+                    if (docsError) {
+                        console.error("Error inserting documents:", docsError.message);
+                    }
+                }
+
+                // Insert maintenance records
+                if (maintenance && maintenance.length > 0) {
+                    const maint = maintenance.map(item => ({
+                        user_id: userId,
+                        asset_id: assetId,
+                        maintenance_type: item.type,
+                        last_service: item.lastService || null,
+                        next_due: item.nextDue || null,
+                        reminder_days: defaultMaintReminderDays,
+                        performed_by: userId
+                    }));
+
+                    const { error: maintError } = await supabase.from("maintenance_records").insert(maint);
+                    if (maintError) {
+                        console.error("Error inserting maintenance:", maintError.message);
+                    }
+                }
+
+                insertedVehicles.push({
+                    row: vehicleData.rowNum,
+                    name: vehicle.name,
+                    vehicleId: assetId
+                });
+
+            } catch (processError) {
+                failedVehicles.push({
+                    row: vehicleData.rowNum,
+                    name: vehicleData.vehicle.name,
+                    error: processError.message
+                });
+            }
+        }
+
+        // Return result
+        res.status(200).json({
+            message: `Batch upload completed: ${insertedVehicles.length} vehicles inserted`,
+            insertedCount: insertedVehicles.length,
+            failedCount: failedVehicles.length,
+            insertedVehicles,
+            failedVehicles,
+            warnings: parseResult.warnings
+        });
+
+    } catch (error) {
+        next(error);
+    }
+};
+
+// Get Excel template for batch upload
+export const getVehicleTemplate = async (req, res, next) => {
+    try {
+        console.log("Generating template...");
+        // generateTemplate is now imported statically at the top
+        const templateBuffer = generateTemplate();
+        console.log("Template generated, size:", templateBuffer.length);
+        
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", "attachment; filename=vehicle_template.xlsx");
+        
+        res.send(templateBuffer);
+    } catch (error) {
+        console.error("Error generating template:", error);
         next(error);
     }
 };

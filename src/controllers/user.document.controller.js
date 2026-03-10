@@ -113,10 +113,10 @@ export const addUserDocument = async (req, res, next) => {
             return res.status(400).json({ error: "Vehicle and document name are required" });
         }
 
-        // Verify the vehicle belongs to this user
+        // Verify the vehicle belongs to this user and get its department_id
         const { data: vehicle, error: vehicleError } = await supabase
             .from("assets")
-            .select("id")
+            .select("id, department_id")
             .eq("id", vehicleId)
             .eq("assigned_user_id", userId)
             .eq("asset_type", "vehicle")
@@ -124,6 +124,20 @@ export const addUserDocument = async (req, res, next) => {
 
         if (vehicleError || !vehicle) {
             return res.status(403).json({ error: "Access denied. This vehicle is not assigned to you." });
+        }
+
+        // Fetch department settings for document reminder days
+        let reminderDays = 30;
+        if (vehicle?.department_id) {
+            const { data: settings, error: settingsError } = await supabase
+                .from("department_settings")
+                .select("document_reminder_days")
+                .eq("department_id", vehicle.department_id)
+                .maybeSingle();
+
+            if (!settingsError && settings) {
+                reminderDays = settings.document_reminder_days || 30;
+            }
         }
 
         // Insert the document
@@ -135,7 +149,7 @@ export const addUserDocument = async (req, res, next) => {
                 // document_number: documentNumber || null,
                 issue_date: issueDate || null,
                 expiry_date: expiryDate || null,
-                reminder_days: 30,
+                reminder_days: reminderDays,
                 uploaded_by: userId
             })
             .select()

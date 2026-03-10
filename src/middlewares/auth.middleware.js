@@ -14,6 +14,9 @@ export const authenticate = (req, res, next) => {
         // Attach user data to request
         req.user = decoded;
 
+        console.log("Verify JWT_SECRET:", process.env.JWT_SECRET);
+        console.log("Decode user", decoded);
+
         next();
     } catch (error) {
         return res.status(401).json({ error: "Invalid or expired token. " });

@@ -125,6 +125,8 @@ export const userLogin = async (req, res, next) => {
                 { expiresIn: "7d" }
             );
 
+            console.log("Login JWT_SECRET:", process.env.JWT_SECRET);
+
             // Return token + user
             res.status(200).json({
                 message: "Login successful",

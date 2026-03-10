@@ -39,16 +39,56 @@ export const warmUpConnection = async (force = false) => {
     try {
         console.log("🔥 Warming up Supabase connection...");
         
-        // Test the connection with a simple query
-        const { data, error } = await supabase
+        // Test the connection with a simple query to main tables
+        const { data: usersData, error: usersError } = await supabase
             .from("users")
             .select("id")
             .limit(1);
         
-        if (error) {
-            console.error("❌ Connection warm-up failed:", error.message);
+        if (usersError) {
+            console.error("❌ Users table warm-up failed:", usersError.message);
+        }
+        
+        // Test vehicle_details relationship query (this is the one that fails on cold start)
+        const { data: assetsData, error: assetsError } = await supabase
+            .from("assets")
+            .select(`
+                id,
+                vehicle_details (
+                    plate_number,
+                    vin,
+                    model,
+                    year,
+                    color
+                )
+            `)
+            .eq("asset_type", "vehicle")
+            .limit(1);
+        
+        if (assetsError) {
+            console.error("❌ Vehicle details warm-up failed:", assetsError.message);
             isConnectionWarmedUp = false;
             return false;
+        }
+        
+        // Test documents table query
+        const { data: docsData, error: docsError } = await supabase
+            .from("documents")
+            .select("id, name, expiry_date")
+            .limit(1);
+        
+        if (docsError) {
+            console.error("❌ Documents warm-up failed:", docsError.message);
+        }
+        
+        // Test maintenance_records table query
+        const { data: maintData, error: maintError } = await supabase
+            .from("maintenance_records")
+            .select("id, maintenance_type, next_due")
+            .limit(1);
+        
+        if (maintError) {
+            console.error("❌ Maintenance records warm-up failed:", maintError.message);
         }
         
         isConnectionWarmedUp = true;
