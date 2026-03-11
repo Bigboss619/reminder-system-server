@@ -4,7 +4,7 @@ import { supabase } from "../config/supabase.js";
 
 export const createAdminUsersByAdmin = async (req, res, next) => {
     try {
-        const { email, password, firstname, lastname, notes } = req.body;
+        const { email, password, firstname, lastname, notes, role } = req.body;
 
         // Get logged-in admin
         const { data: currentUser, error: userError } = await supabase 
@@ -15,6 +15,10 @@ export const createAdminUsersByAdmin = async (req, res, next) => {
 
             if(userError) throw userError;
 
+        // Validate role - only allow user, admin, or audit
+        const allowedRoles = ["user", "admin", "audit"];
+        const userRole = allowedRoles.includes(role) ? role : "user";
+
         // Create Auth User
         const { data: authUser, error: authError } =
             await supabase.auth.admin.createUser({
@@ -22,7 +26,16 @@ export const createAdminUsersByAdmin = async (req, res, next) => {
                 password,
                 email_confirm: true
             });
-        if(authError) throw authError;
+        
+        // Handle specific auth errors with user-friendly messages
+        if (authError) {
+            if (authError.message && authError.message.toLowerCase().includes("email")) {
+                return res.status(400).json({ 
+                    error: "A user with this email address has already been registered" 
+                });
+            }
+            throw authError;
+        }
 
         // Insert into the users table
         const { error } = await supabase.from("users").insert([
@@ -31,7 +44,7 @@ export const createAdminUsersByAdmin = async (req, res, next) => {
                 firstname,
                 lastname,
                 email,
-                role: "user",
+                role: userRole,
                 department_id: currentUser.department_id,
                 status: "active",
                 notes
@@ -480,6 +493,7 @@ export const getCars = async (req, res, next) => {
       .select(`
         id,
         name,
+        asset_code,
         status,
         created_by,
         assigned_user_id,
@@ -520,6 +534,7 @@ export const getCars = async (req, res, next) => {
     const cars = assets.map(asset => ({
       id: asset.id,
       name: asset.name,
+      asset_code: asset.asset_code || "",
       plateNumber: asset.vehicle_details?.[0]?.plate_number || "",
     //   plate_number: asset.vehicle_details?.[0]?.plate_number || "",
       vin: asset.vehicle_details?.[0]?.vin || "",
@@ -944,6 +959,44 @@ export const getCarById = async (req, res, next) => {
   }
 };
 
+// Helper function to generate asset code (NEP/VH/00001)
+const generateAssetCode = async (supabase, departmentId) => {
+    try {
+        // Get all existing assets with asset_code for this department
+        const { data: assets, error } = await supabase
+            .from("assets")
+            .select("asset_code")
+            .eq("department_id", departmentId)
+            .not("asset_code", "is", null)
+            .order("asset_code", { ascending: false });
+
+        if (error) throw error;
+
+        let nextNumber = 1;
+        
+        if (assets && assets.length > 0) {
+            // Find the highest number from existing asset_codes
+            for (const asset of assets) {
+                if (asset.asset_code && asset.asset_code.startsWith("NEP/VH/")) {
+                    const numPart = asset.asset_code.replace("NEP/VH/", "");
+                    const num = parseInt(numPart, 10);
+                    if (!isNaN(num) && num >= nextNumber) {
+                        nextNumber = num + 1;
+                    }
+                }
+            }
+        }
+
+        // Format: NEP/VH/00001
+        const assetCode = `NEP/VH/${nextNumber.toString().padStart(5, '0')}`;
+        return assetCode;
+    } catch (err) {
+        console.error("Error generating asset code:", err.message);
+        // Fallback to timestamp-based code if there's an error
+        return `NEP/VH/${Date.now().toString().slice(-5)}`;
+    }
+};
+
 export const addVehicle = async (req, res, next) => {
     try {
         const adminId = req.user.id;
@@ -984,12 +1037,16 @@ export const addVehicle = async (req, res, next) => {
             }
         }
 
-        // Insert asset
+        // Generate asset code automatically
+        const assetCode = await generateAssetCode(supabase, departmentId);
+
+        // Insert asset with generated asset_code
         const { data: newAsset, error: assetError } = await supabase
             .from("assets")
             .insert({
                 department_id: departmentId,
                 name: vehicle.name,
+                asset_code: assetCode,
                 asset_type: "vehicle",
                 status: vehicle.status || "active",
                 created_by: adminId,
@@ -1053,7 +1110,8 @@ export const addVehicle = async (req, res, next) => {
         }
 
         res.status(201).json({
-            message: "Vehicle added successfully"
+            message: "Vehicle added successfully",
+            asset_code: assetCode
         });
     } catch (err) {
         next(err);
@@ -1077,6 +1135,7 @@ export const getAllDocuments = async (req, res, next) => {
                 assets (
                     id,
                     name,
+                    asset_code,
                     department_id,
                     vehicle_details (
                         plate_number
@@ -1093,8 +1152,10 @@ export const getAllDocuments = async (req, res, next) => {
             carName: doc.assets?.name || "Unknown",
             car: doc.assets ? {
                 name: doc.assets.name,
+                asset_code: doc.assets.asset_code || "",
                 plate_number: doc.assets.vehicle_details?.[0]?.plate_number || ""
             } : null,
+            asset_code: doc.assets?.asset_code || "",
             plateNumber: doc.assets?.vehicle_details?.[0]?.plate_number || "",
             plate_number: doc.assets?.vehicle_details?.[0]?.plate_number || "",
             documentType: doc.name,
@@ -1206,6 +1267,7 @@ export const getAllMaintenance = async (req, res, next) => {
                 assets (
                     id,
                     name,
+                    asset_code,
                     department_id,
                     vehicle_details (
                         plate_number
@@ -1222,8 +1284,10 @@ export const getAllMaintenance = async (req, res, next) => {
             carName: record.assets?.name || "Unknown",
             car: record.assets ? {
                 name: record.assets.name,
+                asset_code: record.assets.asset_code || "",
                 plate_number: record.assets.vehicle_details?.[0]?.plate_number || ""
             } : null,
+            asset_code: record.assets?.asset_code || "",
             plateNumber: record.assets?.vehicle_details?.[0]?.plate_number || "",
             // plate_number: record.assets?.vehicle_details?.[0]?.plate_number || "",
             serviceType: record.maintenance_type,
@@ -1792,12 +1856,16 @@ export const batchUploadVehiclesAdmin = async (req, res, next) => {
                     }
                 }
 
-                // Insert asset
+                // Generate asset code automatically
+                const assetCode = await generateAssetCode(supabase, departmentId);
+
+                // Insert asset with generated asset_code
                 const { data: newAsset, error: assetError } = await supabase
                     .from("assets")
                     .insert({
                         department_id: departmentId,
                         name: vehicle.name,
+                        asset_code: assetCode,
                         asset_type: "vehicle",
                         status: vehicle.status || "active",
                         created_by: adminId,
@@ -1880,6 +1948,7 @@ export const batchUploadVehiclesAdmin = async (req, res, next) => {
                     row: vehicleData.rowNum,
                     name: vehicle.name,
                     vehicleId: assetId,
+                    assetCode: assetCode,
                     assignedTo: assignedUserId ? vehicle.staff_email : "Not Assigned"
                 });
 

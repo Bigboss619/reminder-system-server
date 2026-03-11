@@ -35,8 +35,8 @@ export const adminLogin = async (req, res, next) => {
                 });
             }
 
-            // Ensure user is admin
-            if(user.role !== "admin"){
+            // Ensure user is admin or audit
+            if(user.role !== "admin" && user.role !== "audit"){
                 return res.status(403).json({
                     error: "Access denied. Not an Admin.",
                 });
@@ -106,7 +106,7 @@ export const userLogin = async (req, res, next) => {
                 });
             }
 
-            // Ensure user is not admin (regular user)
+            // Ensure user is not admin (regular user or audit)
             if(user.role === "admin"){
                 return res.status(403).json({
                     error: "Access denied. Please use admin login.",

@@ -7,10 +7,10 @@ import { getSettings, saveSettings } from "../controllers/settings.controller.js
 const router = express.Router();
 
 // Get department settings
-router.get("/settings", authenticate, requireRole("admin"), departmentGuard, getSettings);
+router.get("/settings", authenticate, requireRole("admin", "audit"), departmentGuard, getSettings);
 
 // Save department settings
-router.put("/settings", authenticate, requireRole("admin"), departmentGuard, saveSettings);
+router.put("/settings", authenticate, requireRole("admin", "audit"), departmentGuard, saveSettings);
 
 export default router;
 
