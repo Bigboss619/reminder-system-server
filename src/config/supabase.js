@@ -9,7 +9,7 @@ const __dirname = path.dirname(__filename);
 // Load .env from server/src/.env (same location as server.js)
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
-console.log("Service Key Loaded:", !!process.env.SUPABASE_SERVICE_ROLE_KEY);
+// console.log("Service Key Loaded:", !!process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 export const supabase = createClient(
     process.env.SUPABASE_URL,
