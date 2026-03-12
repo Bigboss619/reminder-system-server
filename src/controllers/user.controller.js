@@ -217,6 +217,7 @@ export const getUserVehicles = async (req, res, next) => {
             .select(`
                 id,
                 name,
+                asset_code,
                 status,
                 created_at,
                 vehicle_details (
@@ -310,6 +311,7 @@ export const getUserVehicles = async (req, res, next) => {
             return {
                 id: vehicle.id,
                 name: vehicle.name || "",
+                assetCode: vehicle.asset_code || "",
                 vehicleInfo: {
                     make: vehicle.vehicle_details?.[0]?.model || "",
                     model: vehicle.vehicle_details?.[0]?.model || "",
@@ -423,6 +425,7 @@ export const getUserMaintenanceRecords = async (req, res, next) => {
                 .select(`
                     id,
                     name,
+                    asset_code,
                     vehicle_details (
                         plate_number,
                         model,
@@ -445,6 +448,7 @@ export const getUserMaintenanceRecords = async (req, res, next) => {
             return {
                 id: m.id,
                 vehicleId: m.asset_id,
+                assetCode: vehicle?.asset_code || "",
                 type: m.maintenance_type,
                 serviceCenter: m.service_center || "N/A",
                 cost: m.cost || 0,
@@ -637,6 +641,7 @@ export const getUserVehicleById = async (req, res, next) => {
             .select(`
                 id,
                 name,
+                asset_code,
                 status,
                 created_at,
                 vehicle_details (
@@ -748,6 +753,7 @@ export const getUserVehicleById = async (req, res, next) => {
         const response = {
             id: vehicle.id,
             name: vehicle.name || "",
+            assetCode: vehicle.asset_code || "",
             vehicleInfo: {
                 make: vehicle.vehicle_details?.[0]?.model || "",
                 model: vehicle.vehicle_details?.[0]?.model || "",
@@ -1108,6 +1114,7 @@ export const getUserReminders = async (req, res, next) => {
                 .select(`
                     id,
                     name,
+                    asset_code,
                     vehicle_details (
                         plate_number,
                         model,
@@ -1169,7 +1176,9 @@ export const getUserReminders = async (req, res, next) => {
                     lastServiceDate: m.last_service,
                     category: 'maintenance',
                     vehicleId: m.asset_id,
+                    assetCode: vehicle?.asset_code || "",
                     vehicleInfo: {
+                        name: vehicle?.name || "",
                         make: vehicle?.vehicle_details?.[0]?.model || "",
                         model: vehicle?.vehicle_details?.[0]?.model || "",
                         year: vehicle?.vehicle_details?.[0]?.year || "",
@@ -1195,7 +1204,9 @@ export const getUserReminders = async (req, res, next) => {
                     lastServiceDate: m.last_service,
                     category: 'maintenance',
                     vehicleId: m.asset_id,
+                    assetCode: vehicle?.asset_code || "",
                     vehicleInfo: {
+                        name: vehicle?.name || "",
                         make: vehicle?.vehicle_details?.[0]?.model || "",
                         model: vehicle?.vehicle_details?.[0]?.model || "",
                         year: vehicle?.vehicle_details?.[0]?.year || "",
@@ -1222,7 +1233,9 @@ export const getUserReminders = async (req, res, next) => {
                     documentNumber: d.document_number || "",
                     category: 'document',
                     vehicleId: d.asset_id,
+                    assetCode: vehicle?.asset_code || "",
                     vehicleInfo: {
+                        name: vehicle?.name || "",
                         make: vehicle?.vehicle_details?.[0]?.model || "",
                         model: vehicle?.vehicle_details?.[0]?.model || "",
                         year: vehicle?.vehicle_details?.[0]?.year || "",
@@ -1249,7 +1262,9 @@ export const getUserReminders = async (req, res, next) => {
                     documentNumber: d.document_number || "",
                     category: 'document',
                     vehicleId: d.asset_id,
+                    assetCode: vehicle?.asset_code || "",
                     vehicleInfo: {
+                        name: vehicle?.name || "",
                         make: vehicle?.vehicle_details?.[0]?.model || "",
                         model: vehicle?.vehicle_details?.[0]?.model || "",
                         year: vehicle?.vehicle_details?.[0]?.year || "",

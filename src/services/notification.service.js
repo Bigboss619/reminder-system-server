@@ -48,11 +48,13 @@ export const notifyVehicleEvent = async ({
         staffEmail = user?.email;
     }
 
-    // Combine all recipients
+    // Combine all recipients (TEST MODE: BOTH ADMINS + STAFF)
     const recipients = [
         staffEmail,
         ...adminEmails
     ].filter(Boolean);
+    
+    console.log("TEST MODE: Sending to admins + staff:", recipients);
 
     if(recipients.length === 0) {
         console.log("No recipients found for vehicle:", vehicle.name);

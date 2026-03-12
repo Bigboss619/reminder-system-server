@@ -15,8 +15,8 @@ export const createAdminUsersByAdmin = async (req, res, next) => {
 
             if(userError) throw userError;
 
-        // Validate role - only allow user, admin, or audit
-        const allowedRoles = ["user", "admin", "audit"];
+        // Validate role - only allow user or audit
+        const allowedRoles = ["user", "audit"];
         const userRole = allowedRoles.includes(role) ? role : "user";
 
         // Create Auth User
@@ -710,6 +710,97 @@ export const updateCar = async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+};
+
+export const updateAdminUser = async (req, res, next) => {
+    try {
+        const { id } = req.params;
+        const { firstname, lastname, email, role, status, notes, password } = req.body;
+        const adminDepartmentId = req.user.department_id;
+
+        if (!firstname || !lastname || !email) {
+            return res.status(400).json({ error: "firstname, lastname, and email are required" });
+        }
+
+        // Validate role
+        const allowedRoles = ["user", "audit"];
+        if (role && !allowedRoles.includes(role)) {
+            return res.status(400).json({ error: "Invalid role. Must be user or audit" });
+        }
+
+        // Validate status
+        if (!["active", "inactive"].includes(status)) {
+            return res.status(400).json({ error: "Status must be active or inactive" });
+        }
+
+        // Fetch user to verify existence and department
+        const { data: user, error: userError } = await supabase
+            .from("users")
+            .select("id, department_id, email")
+            .eq("id", id)
+            .single();
+
+        if (userError || !user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+
+        if (user.department_id !== adminDepartmentId) {
+            return res.status(403).json({ error: "Access denied" });
+        }
+
+        // Check if email is changing and already exists
+        if (email !== user.email) {
+            const { data: existingUser } = await supabase
+                .from("users")
+                .select("id")
+                .eq("email", email)
+                .neq("id", id)
+                .maybeSingle();
+
+            if (existingUser) {
+                return res.status(409).json({ error: "Email already in use by another user" });
+            }
+        }
+
+        // Build update object
+        const updateData = {
+            firstname,
+            lastname,
+            email,
+            role: role || user.role,
+            status,
+            notes: notes || null
+        };
+
+        // Update users table
+        const { data: updatedUser, error: updateError } = await supabase
+            .from("users")
+            .update(updateData)
+            .eq("id", id)
+            .select()
+            .single();
+
+        if (updateError) throw updateError;
+
+        // Update auth password if provided
+        if (password) {
+            const { error: authError } = await supabase.auth.admin.updateUserById(id, {
+                password
+            });
+
+            if (authError) {
+                console.error("Password update failed:", authError.message);
+                // Continue without failing the whole update
+            }
+        }
+
+        res.json({ 
+            message: "User updated successfully",
+            user: updatedUser 
+        });
+    } catch (err) {
+        next(err);
+    }
 };
 
 export const getAdminProfile = async (req, res, next) => {

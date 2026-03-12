@@ -1,5 +1,5 @@
 import express from "express";
-import { createAdminUsersByAdmin, getAllUsersByAdmin, getCars, getCarById, updateCar, deleteCar, getAdminProfile, updateAdminProfile, changePassword, addVehicle, getAllDocuments, addDocument, getAllMaintenance, addMaintenance, getUserById, updateUserStatus, deleteUser, assignCarToUser, unassignCarFromUser, getAvailableCars, getNotifications, markNotificationRead, getDashboardStats, batchUploadVehiclesAdmin, getVehicleTemplateAdmin } from "../controllers/admin.controller.js";
+import { createAdminUsersByAdmin, getAllUsersByAdmin, getCars, getCarById, updateCar, deleteCar, getAdminProfile, updateAdminProfile, changePassword, addVehicle, getAllDocuments, addDocument, getAllMaintenance, addMaintenance, getUserById, updateUserStatus, deleteUser, assignCarToUser, unassignCarFromUser, getAvailableCars, getNotifications, markNotificationRead, getDashboardStats, batchUploadVehiclesAdmin, getVehicleTemplateAdmin, updateAdminUser } from "../controllers/admin.controller.js";
 import { requireRole } from "../middlewares/requireRole.js";
 import { authenticate } from "../middlewares/auth.middleware.js";
 import { departmentGuard } from "../middlewares/departmentGuard.js";
@@ -53,6 +53,8 @@ router.post("/vehicle/batch", authenticate, requireRole("admin", "audit"), depar
 router.get("/users/:department", authenticate, requireRole("admin", "audit"), departmentGuard, getAllUsersByAdmin);
 
 router.get("/users/detail/:id", authenticate, requireRole("admin", "audit"), departmentGuard, getUserById);
+
+router.put("/users/:id", authenticate, requireRole("admin", "audit"), departmentGuard, updateAdminUser);
 
 router.put("/users/:id/status", authenticate, requireRole("admin", "audit"), departmentGuard, updateUserStatus);
 

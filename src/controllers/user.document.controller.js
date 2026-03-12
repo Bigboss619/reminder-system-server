@@ -14,7 +14,7 @@ export const getUserDocuments = async (req, res, next) => {
         // First, get all vehicles assigned to this user
         const { data: vehicles, error: vehiclesError } = await supabase
             .from("assets")
-            .select("id, name, vehicle_details(plate_number, model)")
+            .select("id, name, asset_code, vehicle_details(plate_number, model)")
             .eq("assigned_user_id", userId)
             .eq("asset_type", "vehicle");
 
@@ -65,6 +65,7 @@ export const getUserDocuments = async (req, res, next) => {
             return {
                 id: doc.id,
                 vehicleId: doc.asset_id,
+                assetCode: vehicle?.asset_code || "",
                 type: doc.name,
                 // documentNumber: doc.document_number || "",
                 issueDate: doc.issue_date,
