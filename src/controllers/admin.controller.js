@@ -397,58 +397,58 @@ export const deleteUser = async (req, res, next) => {
         }
 
         // Get all vehicles assigned to this user
-        const { data: userVehicles } = await supabase
-            .from("assets")
-            .select("id")
-            .eq("assigned_user_id", id)
-            .eq("asset_type", "vehicle");
+        // const { data: userVehicles } = await supabase
+        //     .from("assets")
+        //     .select("id")
+        //     .eq("assigned_user_id", id)
+        //     .eq("asset_type", "vehicle");
 
-        const vehicleIds = userVehicles?.map(v => v.id) || [];
+        // const vehicleIds = userVehicles?.map(v => v.id) || [];
 
         // Delete related data for each vehicle
-        for (const vehicleId of vehicleIds) {
-            // Delete document renewals
-            await supabase
-                .from("document_renewals")
-                .delete()
-                .eq("asset_id", vehicleId);
+        // for (const vehicleId of vehicleIds) {
+        //     // Delete document renewals
+        //     await supabase
+        //         .from("document_renewals")
+        //         .delete()
+        //         .eq("asset_id", vehicleId);
 
-            // Delete documents
-            await supabase
-                .from("documents")
-                .delete()
-                .eq("asset_id", vehicleId);
+        //     // Delete documents
+        //     await supabase
+        //         .from("documents")
+        //         .delete()
+        //         .eq("asset_id", vehicleId);
 
-            // Delete maintenance records
-            await supabase
-                .from("maintenance_records")
-                .delete()
-                .eq("asset_id", vehicleId);
+        //     // Delete maintenance records
+        //     await supabase
+        //         .from("maintenance_records")
+        //         .delete()
+        //         .eq("asset_id", vehicleId);
 
-            // Delete activity logs
-            await supabase
-                .from("activity_logs")
-                .delete()
-                .eq("asset_id", vehicleId);
+        //     // Delete activity logs
+        //     await supabase
+        //         .from("activity_logs")
+        //         .delete()
+        //         .eq("asset_id", vehicleId);
 
-            // Delete vehicle details
-            await supabase
-                .from("vehicle_details")
-                .delete()
-                .eq("asset_id", vehicleId);
+        //     // Delete vehicle details
+        //     await supabase
+        //         .from("vehicle_details")
+        //         .delete()
+        //         .eq("asset_id", vehicleId);
 
-            // Delete the vehicle asset
-            await supabase
-                .from("assets")
-                .delete()
-                .eq("id", vehicleId);
-        }
+        //     // Delete the vehicle asset
+        //     await supabase
+        //         .from("assets")
+        //         .delete()
+        //         .eq("id", vehicleId);
+        // }
 
         // Delete any activity logs directly associated with the user
-        await supabase
-            .from("activity_logs")
-            .delete()
-            .eq("user_id", id);
+        // await supabase
+        //     .from("activity_logs")
+        //     .delete()
+        //     .eq("user_id", id);
 
         // Delete the user from users table
         const { error: deleteUserError } = await supabase
