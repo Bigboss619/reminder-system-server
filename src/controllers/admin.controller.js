@@ -782,6 +782,17 @@ export const updateAdminUser = async (req, res, next) => {
 
         if (updateError) throw updateError;
 
+        // Update Supabase auth email if changed
+        if (email !== user.email) {
+            const { error: authEmailError } = await supabase.auth.admin.updateUserById(id, {
+                email
+            });
+            if (authEmailError) {
+                console.error("Auth email update failed:", authEmailError.message);
+                // Continue without failing the whole update
+            }
+        }
+
         // Update auth password if provided
         if (password) {
             const { error: authError } = await supabase.auth.admin.updateUserById(id, {
