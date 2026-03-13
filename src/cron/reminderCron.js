@@ -4,10 +4,10 @@ import { notifyVehicleEvent } from "../services/notification.service.js";
 
 export const startReminderCron = () => {
 
-     // For testing: runs every minute - uncomment below and comment out the production schedule
+    // For testing: runs every minute - uncomment below and comment out the production schedule
     // cron.schedule("* * * * *", async () => {
 
-    // Production: Runs every day at 8:00 AM
+    // Production: Runs every day at 8:00 AM (commented for testing)
     cron.schedule("0 8 * * *", async () => {
         console.log("Running reminder check...");
 

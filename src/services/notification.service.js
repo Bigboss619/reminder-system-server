@@ -21,10 +21,14 @@ export const notifyVehicleEvent = async ({
             staff_email
         )
      `)
+
      .eq("id", assetId)
      .single();
 
-     if(!vehicle) return;
+    if(!vehicle) {
+        console.log(`No vehicle found for asset_id: ${assetId}`);
+        return;
+    }
 
     // Get Admin emails
     const { data: admins } = await supabase
@@ -48,11 +52,25 @@ export const notifyVehicleEvent = async ({
         staffEmail = user?.email;
     }
 
-    // Combine all recipients (TEST MODE: BOTH ADMINS + STAFF)
+    // Get department users (non-admins) as "owners" for vehicle notifications
+    const { data: deptUsers } = await supabase
+        .from("users")
+        .select("email")
+        .eq("department_id", vehicle.department_id)
+        .neq("role", "admin");
+
+    const ownerEmails = deptUsers?.map(u => u.email) || [];
+    
+    // Use first owner email or null
+    let ownerEmail = ownerEmails[0] || null;
+
+    // Combine all recipients (TEST MODE: ADMINS + STAFF + OWNER)
     const recipients = [
+        ownerEmail,
         staffEmail,
         ...adminEmails
     ].filter(Boolean);
+
     
     console.log("TEST MODE: Sending to admins + staff:", recipients);
 
