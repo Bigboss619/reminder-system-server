@@ -1,5 +1,6 @@
 import express from "express";
 import { getUserProfile, updateUserProfile, changeUserPassword, getUserVehicles, getUserMaintenanceRecords, updateUserMaintenance, addUserMaintenance, deleteUserMaintenance, getUserVehicleById, addUserVehicle, updateUserVehicle, getUserReminders, batchUploadVehicles, getVehicleTemplate } from "../controllers/user.controller.js";
+import { deleteUserVehicle } from "../controllers/user.delete.controller.js";
 import { getUserDocuments, addUserDocument, renewUserDocument, getUserDocumentHistory, deleteUserDocument } from "../controllers/user.document.controller.js";
 import { authenticate } from "../middlewares/auth.middleware.js";
 import multer from "multer";
@@ -42,6 +43,7 @@ router.get("/vehicles/template", getVehicleTemplate);
 router.get("/vehicles/:id", getUserVehicleById);
 router.post("/vehicles", addUserVehicle);
 router.put("/vehicles/:id", updateUserVehicle);
+router.delete("/vehicles/:id", deleteUserVehicle);
 
 // Batch upload routes
 router.post("/vehicles/batch", upload.single("file"), batchUploadVehicles);
