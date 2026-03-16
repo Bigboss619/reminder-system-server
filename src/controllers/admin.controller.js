@@ -836,29 +836,71 @@ export const getAdminProfile = async (req, res, next) => {
 export const updateAdminProfile = async (req, res, next) => {
     try {
         const adminId = req.user.id;
-        const { firstname, lastname, phone, address, date_of_birth } = req.body;
+        const { firstname, lastname, email, phone, address, date_of_birth } = req.body;
         
+        // Fetch current user data to check for email changes
+        const { data: currentUser, error: fetchError } = await supabase
+            .from("users")
+            .select("email")
+            .eq("id", adminId)
+            .single();
+            
+        if (fetchError) {
+            return res.status(500).json({ error: "Failed to fetch current profile" });
+        }
+
         // Build update object with only provided fields
         const updateData = {};
         if (firstname !== undefined) updateData.firstname = firstname;
         if (lastname !== undefined) updateData.lastname = lastname;
         if (phone !== undefined) updateData.phone = phone;
         if (address !== undefined) updateData.address = address;
+        if (date_of_birth !== undefined) updateData.date_of_birth = date_of_birth;
 
-        const { data, error } = await supabase
+        let emailChanged = false;
+        if (email !== undefined && email !== currentUser.email) {
+            // Check if new email already exists (excluding self)
+            const { data: existingUser } = await supabase
+                .from("users")
+                .select("id")
+                .eq("email", email)
+                .neq("id", adminId)
+                .maybeSingle();
+
+            if (existingUser) {
+                return res.status(409).json({ error: "Email already in use by another user" });
+            }
+            
+            updateData.email = email;
+            emailChanged = true;
+        }
+
+        // Update users table
+        const { data: updatedUser, error: updateError } = await supabase
             .from("users")
             .update(updateData)
             .eq("id", adminId)
             .select()
             .single();
             
-        if(error){
-            return res.status(400).json({ error: error.message });
+        if (updateError) {
+            return res.status(400).json({ error: updateError.message });
+        }
+
+        // Update Supabase auth email if changed
+        if (emailChanged) {
+            const { error: authEmailError } = await supabase.auth.admin.updateUserById(adminId, {
+                email: email
+            });
+            if (authEmailError) {
+                console.error("Auth email update failed:", authEmailError.message);
+                // Don't fail the whole update, log and continue
+            }
         }
 
         res.status(200).json({
             message: "Profile updated successfully",
-            user: data,
+            user: updatedUser,
         });
     } catch (err) {
         next(err);

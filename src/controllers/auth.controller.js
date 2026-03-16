@@ -35,6 +35,12 @@ export const adminLogin = async (req, res, next) => {
                 });
             }
 
+            if (user.status !== "active") {
+                return res.status(403).json({
+                    error: "Account is inactive. Contact administrator to reactivate.",
+                });
+            }
+
             // Ensure user is admin or audit
             if(user.role !== "admin" && user.role !== "audit"){
                 return res.status(403).json({
@@ -103,6 +109,12 @@ export const userLogin = async (req, res, next) => {
             if(userError || !user){
                 return res.status(404).json({
                     error: "User profile not found",
+                });
+            }
+
+            if (user.status !== "active") {
+                return res.status(403).json({
+                    error: "Account is inactive. Contact administrator to reactivate.",
                 });
             }
 
