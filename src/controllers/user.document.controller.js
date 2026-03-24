@@ -14,7 +14,7 @@ export const getUserDocuments = async (req, res, next) => {
         // First, get all vehicles assigned to this user
         const { data: vehicles, error: vehiclesError } = await supabase
             .from("assets")
-            .select("id, name, asset_code, vehicle_details(plate_number, model)")
+            .select("id, name, asset_code, vehicle_details(reg_number, model)")
             .eq("assigned_user_id", userId)
             .eq("asset_type", "vehicle");
 
@@ -84,7 +84,7 @@ export const getUserDocuments = async (req, res, next) => {
                     name: vehicle?.name || "",
                     make: vehicle?.vehicle_details?.[0]?.model || "",
                     model: vehicle?.vehicle_details?.[0]?.model || "",
-                    plateNumber: vehicle?.vehicle_details?.[0]?.plate_number || "",
+                    reg_number: vehicle?.vehicle_details?.[0]?.reg_number || "",
                 }
             };
         });
@@ -262,7 +262,7 @@ export const getUserDocumentHistory = async (req, res, next) => {
         // Get the document
         const { data: document, error } = await supabase
             .from("documents")
-            .select("id, name, document_number, asset_id")
+            .select("id, name, asset_id")
             .eq("id", id)
             .single();
 
@@ -303,7 +303,7 @@ export const getUserDocumentHistory = async (req, res, next) => {
         res.status(200).json({
             id: document.id,
             type: document.name,
-            documentNumber: document.document_number,
+            // documentNumber: document.document_number,
             history: history
         });
     } catch (error) {

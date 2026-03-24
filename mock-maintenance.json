@@ -1,0 +1,36 @@
+[
+  {
+    "id": "maint-001",
+    "carName": "Toyota Corolla",
+    "car": {
+      "name": "Toyota Corolla",
+      "reg_number": "ABC 123X"
+    },
+    "reg_number": "ABC 123X",
+    "serviceType": "Oil Change",
+    "maintenance_type": "Oil Change",
+    "type": "Oil Change",
+    "lastService": "2024-01-15",
+    "last_service": "2024-01-15",
+    "nextDue": "2024-04-15",
+    "next_due": "2024-04-15",
+    "reminder_days": 30
+  },
+  {
+    "id": "maint-002",
+    "carName": "Honda Accord",
+    "car": {
+      "name": "Honda Accord",
+      "reg_number": "DEF 456Y"
+    },
+    "reg_number": "DEF 456Y",
+    "serviceType": "Brake Service",
+    "maintenance_type": "Brake Service",
+    "type": "Brake Service",
+    "lastService": "2024-02-20",
+    "last_service": "2024-02-20",
+    "nextDue": "2024-05-20",
+    "next_due": "2024-05-20",
+    "reminder_days": 14
+  }
+]

@@ -1,326 +1,297 @@
 import * as XLSX from "xlsx";
 
-/**
- * Parse Excel file and extract vehicle data with documents and maintenance
- * @param {Buffer} fileBuffer - The Excel file buffer
- * @returns {Object} - Parsed data with vehicles, errors, and warnings
- */
 export const parseExcelFile = (fileBuffer) => {
   const workbook = XLSX.read(fileBuffer, { type: "buffer" });
-  
-  // Get the first sheet
+
   const sheetName = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[sheetName];
-  
-  // Convert to JSON
+
   const rawData = XLSX.utils.sheet_to_json(worksheet, { defval: "" });
-  
+
   const errors = [];
   const warnings = [];
-  
-  // First pass: validate all rows and collect them
   const validRows = [];
+
+  /* =========================
+     FIRST PASS (VALIDATION)
+  ========================= */
   for (let i = 0; i < rawData.length; i++) {
     const row = rawData[i];
-    const rowNum = i + 2; // Excel row number (1-indexed + header)
-    
-    // Skip completely empty rows
-    if (!row.name && !row.plate_number && !row.vin) {
+    const rowNum = i + 2;
+
+    const name = (row["Name of Vehicle"] || "").toString().trim();
+    const regNumber = (row["Reg Number"] || "").toString().trim();
+    const chassisNumber = (row["Chasis Number"] || "").toString().trim();
+    const staffName = (row["Assigned Staff/Comp"] || "").toString().trim();
+    const staffEmail = (row["staff_email"] || "").toString().trim();
+
+    // Skip empty rows
+    if (!name && !regNumber && !chassisNumber) continue;
+
+    if (!name) {
+      errors.push(`Row ${rowNum}: Name of Vehicle is required`);
       continue;
     }
-    
-    // Required fields validation
-    if (!row.name || row.name.toString().trim() === "") {
-      errors.push(`Row ${rowNum}: Vehicle name is required`);
+
+    if (!regNumber) {
+      errors.push(`Row ${rowNum}: Reg Number is required`);
       continue;
     }
-    
-    if (!row.plate_number || row.plate_number.toString().trim() === "") {
-      errors.push(`Row ${rowNum}: Plate number is required`);
+
+    if (!chassisNumber) {
+      errors.push(`Row ${rowNum}: Chasis Number is required`);
       continue;
     }
-    
-    if (!row.vin || row.vin.toString().trim() === "") {
-      errors.push(`Row ${rowNum}: VIN is required`);
+
+    if (!staffName) {
+      errors.push(`Row ${rowNum}: Assigned Staff/Comp is required`);
       continue;
     }
-    
-    if (!row.staff_name || row.staff_name.toString().trim() === "") {
-      errors.push(`Row ${rowNum}: Staff name is required`);
-      continue;
-    }
-    
-    if (!row.staff_email || row.staff_email.toString().trim() === "") {
-      errors.push(`Row ${rowNum}: Staff email is required`);
-      continue;
-    }
-    
-    // Validate email format
+
+    // Email validation (optional)
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(row.staff_email)) {
-      errors.push(`Row ${rowNum}: Invalid email format for staff email`);
+    if (staffEmail && !emailRegex.test(staffEmail)) {
+      errors.push(`Row ${rowNum}: Invalid staff email`);
       continue;
     }
-    
-    // Validate expiry date if provided
-    if (row.document_expiry_date) {
-      const expiryDate = new Date(row.document_expiry_date);
-      if (isNaN(expiryDate.getTime())) {
-        errors.push(`Row ${rowNum}: Invalid document expiry date format`);
-        continue;
-      }
-      if (expiryDate < new Date()) {
-        warnings.push(`Row ${rowNum}: Document expiry date is in the past`);
-      }
-    }
-    
-    // Validate maintenance next due date if provided
-    if (row.maintenance_next_due) {
-      const nextDue = new Date(row.maintenance_next_due);
-      if (isNaN(nextDue.getTime())) {
-        errors.push(`Row ${rowNum}: Invalid maintenance next due date format`);
-        continue;
-      }
-    }
-    
-    // Validate year if provided
-    if (row.year) {
-      const year = parseInt(row.year, 10);
-      if (isNaN(year) || year < 1900 || year > new Date().getFullYear() + 1) {
-        warnings.push(`Row ${rowNum}: Year seems invalid`);
-      }
-    }
-    
+
     validRows.push({ row, rowNum });
   }
-  
-  // Second pass: group by plate_number to combine documents and maintenance
+
+  /* =========================
+     SECOND PASS (GROUPING)
+  ========================= */
   const vehicleMap = new Map();
-  
+
   for (const { row, rowNum } of validRows) {
-    const plateNumber = row.plate_number?.toString().trim();
-    
-    // Get vehicle info (only from first occurrence)
-    if (!vehicleMap.has(plateNumber)) {
+    const name = (row["Name of Vehicle"] || "").toString().trim();
+    const regNumber = (row["Reg Number"] || "").toString().trim();
+    const chassisNumber = (row["Chasis Number"] || "").toString().trim();
+    const staffName = (row["Assigned Staff/Comp"] || "").toString().trim();
+    const staffEmail = (row["staff_email"] || "").toString().trim();
+
+    if (!vehicleMap.has(chassisNumber)) {
       const vehicle = {
-        name: row.name?.toString().trim() || "",
-        plate_number: plateNumber,
-        vin: row.vin?.toString().trim() || "",
-        model: row.model?.toString().trim() || "",
-        year: row.year ? parseInt(row.year, 10) : null,
-        color: row.color?.toString().trim() || "",
-        staff_name: row.staff_name?.toString().trim() || "",
-        staff_email: row.staff_email?.toString().trim() || "",
-        status: row.status?.toString().trim() || "active"
+        name,
+        reg_number: regNumber,
+        chassis_number: chassisNumber,
+        model: (row["Vehicle Description"] || "").toString().trim(),
+        brand: (row["Brand"] || "").toString().trim(),
+        year_accquired: row["Year Acquired"]
+          ? parseInt(row["Year Acquired"], 10)
+          : null,
+        color: "",
+        SBU: (row["SBU"] || "").toString().trim(),
+        staff_name: staffName,
+        staff_email: staffEmail || null,
+        status: "active",
       };
-      
-      vehicleMap.set(plateNumber, {
+
+      vehicleMap.set(chassisNumber, {
         vehicle,
         documents: [],
         maintenance: [],
-        rowNum
+        rowNum,
       });
     }
-    
-    const vehicleData = vehicleMap.get(plateNumber);
-    
-    // Add document if present
-    if (row.document_name && row.document_name.toString().trim() !== "") {
-      // Check if this document type already exists for this vehicle
-      const existingDocIndex = vehicleData.documents.findIndex(
-        d => d.name.toLowerCase() === row.document_name?.toString().trim().toLowerCase()
-      );
-      
-      if (existingDocIndex === -1) {
+
+    const vehicleData = vehicleMap.get(chassisNumber);
+
+    /* =========================
+       DOCUMENTS (AUTO)
+    ========================= */
+
+    const addDoc = (name, expiry, issue = null) => {
+      if (!expiry) return;
+
+      if (!vehicleData.documents.some(d => d.name === name)) {
         vehicleData.documents.push({
-          name: row.document_name?.toString().trim() || "",
-          issueDate: row.document_issue_date || null,
-          expiryDate: row.document_expiry_date || null
+          name,
+          issueDate: issue,
+          expiryDate: expiry,
         });
       }
-    }
-    
-    // Add maintenance if present
-    if (row.maintenance_type && row.maintenance_type.toString().trim() !== "") {
-      // Check if this maintenance type already exists for this vehicle
-      const existingMaintIndex = vehicleData.maintenance.findIndex(
-        m => m.type.toLowerCase() === row.maintenance_type?.toString().trim().toLowerCase()
-      );
-      
-      if (existingMaintIndex === -1) {
-        vehicleData.maintenance.push({
-          type: row.maintenance_type?.toString().trim() || "",
-          lastService: row.maintenance_last_service || null,
-          nextDue: row.maintenance_next_due || null
-        });
-      }
-    }
-  }
-  
-  const vehicles = Array.from(vehicleMap.values());
-  
-  return {
-    vehicles,
-    errors,
-    warnings,
-    totalRows: rawData.length
-  };
-};
+    };
 
-/**
- * Check for duplicate VINs in the parsed data
- * @param {Array} vehicles - Array of parsed vehicle objects
- * @returns {Array} - Array of duplicate VIN errors
- */
-export const checkDuplicateVINs = (vehicles) => {
-  const vinMap = new Map();
-  const duplicates = [];
-  
-  for (const item of vehicles) {
-    const vin = item.vehicle.vin;
-    if (vinMap.has(vin)) {
-      duplicates.push(`Plate "${item.vehicle.plate_number}": Duplicate VIN "${vin}" (also found in "${vinMap.get(vin)}")`);
-    } else {
-      vinMap.set(vin, item.vehicle.plate_number);
-    }
-  }
-  
-  return duplicates;
-};
+    addDoc("Road Worthiness", row["Road Worthiness Expiry"]);
+    addDoc("Vehicle License", row["Vehicle Lincense Expiry"]);
+    addDoc("Proof of Ownership", row["Proof of Ownership"]);
+    addDoc("Insurance", row["Insurance Expiry"]);
 
-/**
- * Generate Excel template for batch upload
- * @returns {Buffer} - Excel file buffer
- */
-export const generateTemplate = () => {
-  try {
-    const templateData = [
-      // First vehicle with 1 document and 1 maintenance
-      {
-        name: "Vehicle 1",
-        plate_number: "ABC-1234",
-        vin: "1HGBH41JXMN109186",
-        model: "Toyota Camry",
-        year: 2023,
-        color: "Silver",
-        staff_name: "John Doe",
-        staff_email: "john.doe@example.com",
-        status: "active",
-        document_name: "Insurance",
-        document_issue_date: "2024-01-01",
-        document_expiry_date: "2025-01-01",
-        maintenance_type: "Oil Change",
-        maintenance_last_service: "2024-06-01",
-        maintenance_next_due: "2024-12-01"
-      },
-      // Same vehicle (ABC-1234) with additional document and maintenance
-      {
-        name: "Vehicle 1",
-        plate_number: "ABC-1234",
-        vin: "1HGBH41JXMN109186",
-        model: "Toyota Camry",
-        year: 2023,
-        color: "Silver",
-        staff_name: "John Doe",
-        staff_email: "john.doe@example.com",
-        status: "active",
-        document_name: "Registration",
-        document_issue_date: "2024-01-15",
-        document_expiry_date: "2025-01-15",
-        maintenance_type: "Tire Rotation",
-        maintenance_last_service: "2024-05-15",
-        maintenance_next_due: "2024-11-15"
-      },
-      // Second vehicle (different plate_number)
-      {
-        name: "Vehicle 2",
-        plate_number: "XYZ-5678",
-        vin: "2HGBH41JXMN109187",
-        model: "Honda Civic",
-        year: 2022,
-        color: "Black",
-        staff_name: "Jane Smith",
-        staff_email: "jane.smith@example.com",
-        status: "active",
-        document_name: "Insurance",
-        document_issue_date: "2024-02-01",
-        document_expiry_date: "2025-02-01",
-        maintenance_type: "Brake Service",
-        maintenance_last_service: "2024-04-01",
-        maintenance_next_due: "2024-10-01"
-      }
-    ];
-    
-    const worksheet = XLSX.utils.json_to_sheet(templateData);
-    
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Vehicle Template");
-    
-    const buffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
-    return buffer;
-  } catch (error) {
-    console.error("Error generating template:", error);
-    throw error;
-  }
-};
+    addDoc(
+      "Local Govt Certificate",
+      row["Local  Govt Date of Expiry"] || row["Local Govt Date of Expiry"],
+      row["Local Govt Date Issue"]
+    );
 
-/**
- * Validate parsed vehicles against database for duplicates
- * @param {Array} vehicles - Array of parsed vehicle objects
- * @param {Object} supabase - Supabase client
- * @param {String} departmentId - Department ID to check against
- * @returns {Array} - Array of existing vehicle errors
- */
-export const checkExistingVehicles = async (vehicles, supabase, departmentId) => {
-  const errors = [];
-  const plateNumbers = vehicles.map(v => v.vehicle.plate_number);
-  const vins = vehicles.map(v => v.vehicle.vin);
-  
-  // Check for existing plate numbers in the same department
-  const { data: existingPlates, error: plateError } = await supabase
-    .from("vehicle_details")
-    .select("id, plate_number, asset_id")
-    .in("plate_number", plateNumbers);
-  
-  if (!plateError && existingPlates && existingPlates.length > 0) {
-    // Check if these vehicles belong to the same department
-    const assetIds = existingPlates.map(v => v.asset_id);
-    const { data: assets } = await supabase
-      .from("assets")
-      .select("id, department_id")
-      .in("id", assetIds);
-    
-    if (assets) {
-      const sameDeptAssets = assets.filter(a => a.department_id === departmentId);
-      if (sameDeptAssets.length > 0) {
-        const sameDeptIds = sameDeptAssets.map(a => a.id);
-        const conflictingPlates = existingPlates.filter(p => sameDeptIds.includes(p.asset_id));
-        
-        for (const plate of conflictingPlates) {
-          const row = vehicles.find(v => v.vehicle.plate_number === plate.plate_number);
-          if (row) {
-            errors.push(`Row ${row.rowNum}: Plate number "${plate.plate_number}" already exists in your department`);
+    /* =========================
+       MAINTENANCE
+    ========================= */
+    const lastServicedInput = row["Last Serviced Year"];
+    let lastServiceDate = null;
+
+    if (lastServicedInput != null && lastServicedInput !== "") {
+      if (typeof lastServicedInput === "number") {
+        lastServiceDate = new Date(lastServicedInput, 0, 1).toISOString().split('T')[0];
+      } else {
+        const str = String(lastServicedInput).trim();
+        // Validate YYYY-MM-DD
+        if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+          const date = new Date(str + "T00:00:00");
+          if (!isNaN(date.getTime())) {
+            lastServiceDate = str;
           }
         }
       }
     }
-  }
-  
-  // Check for existing VINs (global check - VINs should be unique everywhere)
-  const { data: existingVins, error: vinError } = await supabase
-    .from("vehicle_details")
-    .select("id, vin, asset_id")
-    .in("vin", vins);
-  
-  if (!vinError && existingVins && existingVins.length > 0) {
-    for (const vin of existingVins) {
-      const row = vehicles.find(v => v.vehicle.vin === vin.vin);
-      if (row) {
-        errors.push(`Row ${row.rowNum}: VIN "${vin.vin}" already exists in the system`);
-      }
+
+    // Always create default maintenance record, even if no last serviced date
+    if (!vehicleData.maintenance.some(m => m.type === "Annual Maintenance")) {
+      vehicleData.maintenance.push({
+        type: "Annual Maintenance",
+        lastService: lastServiceDate,
+        nextDue: null,
+      });
     }
   }
-  
-  return errors;
+
+  const vehicles = Array.from(vehicleMap.values());
+
+  return {
+    vehicles,
+    errors,
+    warnings,
+    totalRows: rawData.length,
+  };
 };
 
+export const checkDuplicateVINs = (vehicles) => {
+  const vinCount = new Map();
+  const duplicates = [];
+
+  vehicles.forEach((vehicleData) => {
+    const vin = vehicleData.vehicle.chassis_number.toString().trim().toUpperCase();
+    if (!vin) return;
+
+    vinCount.set(vin, (vinCount.get(vin) || 0) + 1);
+  });
+
+  vehicles.forEach((vehicleData) => {
+    const vin = vehicleData.vehicle.chassis_number.toString().trim().toUpperCase();
+    if (vin && vinCount.get(vin) > 1) {
+      duplicates.push(`Row ${vehicleData.rowNum}: Duplicate VIN/Chassis Number "${vin}" found`);
+    }
+  });
+
+  return duplicates;
+};
+
+
+export const checkExistingVehicles = async (vehicles, supabase, departmentId) => {
+  const existingErrors = [];
+
+  // Get all plate_numbers and vins from Excel data
+  const excelPlates = vehicles.map(v => v.vehicle.reg_number.toString().trim().toUpperCase());
+  const excelVins = vehicles.map(v => v.vehicle.chassis_number.toString().trim().toUpperCase());
+
+  // Query assets in department, select vehicle_details.reg_number, chassis_number
+  const { data: existingAssets, error } = await supabase
+    .from('assets')
+    .select(`
+      vehicle_details (
+        reg_number,
+        chassis_number
+      )
+    `)
+    .eq('department_id', departmentId)
+    .eq('asset_type', 'vehicle');
+
+  if (error) {
+    console.error('Database query error:', error);
+    return [];
+  }
+
+  // Flatten vehicle_details array (usually 1:1)
+  const existingVehicles = existingAssets.flatMap(asset => 
+    asset.vehicle_details?.map(vd => ({ 
+      reg_number: vd.reg_number, 
+      chassis_number: vd.chassis_number 
+    })) || []
+  );
+
+  existingVehicles.forEach(existing => {
+    const existingPlate = existing.reg_number?.toString().trim().toUpperCase();
+    const existingVin = existing.chassis_number?.toString().trim().toUpperCase();
+
+    // Check plate number duplicates
+    if (existingPlate && excelPlates.includes(existingPlate)) {
+      const matchingVehicle = vehicles.find(v => 
+        v.vehicle.reg_number.toString().trim().toUpperCase() === existingPlate
+      );
+      if (matchingVehicle) {
+        existingErrors.push(
+          `Row ${matchingVehicle.rowNum}: Reg Number "${existingPlate}" already exists`
+        );
+      }
+    }
+
+    // Check VIN duplicates
+    if (existingVin && excelVins.includes(existingVin)) {
+      const matchingVehicle = vehicles.find(v => 
+        v.vehicle.chassis_number.toString().trim().toUpperCase() === existingVin
+      );
+      if (matchingVehicle) {
+        existingErrors.push(
+          `Row ${matchingVehicle.rowNum}: Chassis Number "${existingVin}" already exists`
+        );
+      }
+    }
+  });
+
+  return existingErrors;
+};
+
+
+export const generateTemplate = () => {
+  // Create workbook with sample headers matching parseExcelFile expectations
+  const wb = XLSX.utils.book_new();
+
+  const headers = [
+    "Name of Vehicle",
+    "Reg Number",
+    "Chasis Number",
+    "Vehicle Description",
+    "Brand",
+    "staff_email",
+    "Assigned Staff/Comp",
+    "SBU",
+    "Road Worthiness Expiry",
+    "Vehicle Lincense Expiry",
+    "Proof of Ownership",
+    "Insurance Expiry",
+    "Year Acquired",
+    "Last Serviced Date",
+    "Local Govt Date Issue",
+    "Local  Govt Date of Expiry"
+  ];
+
+  // Create sample data rows
+  const sampleData = [
+    ["Toyota Corolla Fleet 001", "ABC 123 AA", "JTDKDTB3XJ1234567", "Corolla Sedan 1.8L", "Toyota", "john.doe@nepa.com", "John Doe", "Distribution", "2025-06-15", "2025-03-20", "2026-01-01", "2025-02-28", "2023", "2025-01-15", "2024-01-10", "2025-01-10"],
+    ["Honda Accord Fleet 002", "XYZ 456 BB", "1HGCR2F3XFA000123", "Accord 2.0L Hybrid", "Honda", "jane.smith@nepa.com", "Jane Smith", "Operations", "2025-07-20", "2025-04-10", "2026-02-15", "2025-03-15", "2022", "2024-06-20", "2024-02-05", "2025-02-05"],
+    ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""]
+  ];
+
+  const wsData = [headers, ...sampleData];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  
+  // Auto-size columns
+  const colWidths = headers.map(h => ({ wch: Math.max(15, h.length + 2) }));
+  ws['!cols'] = colWidths;
+  
+  XLSX.utils.book_append_sheet(wb, ws, "Vehicle Template");
+  
+  // Generate buffer
+  const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  return buffer;
+};

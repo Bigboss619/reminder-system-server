@@ -55,8 +55,8 @@ export const warmUpConnection = async (force = false) => {
             .select(`
                 id,
                 vehicle_details (
-                    plate_number,
-                    vin,
+                    reg_number,
+                    chassis_number,
                     model,
                     year,
                     color

@@ -217,14 +217,13 @@ export const getUserVehicles = async (req, res, next) => {
             .select(`
                 id,
                 name,
-                asset_code,
                 status,
                 created_at,
                 vehicle_details (
-                    plate_number,
-                    vin,
+                    reg_number,
+                    chassis_number,
                     model,
-                    year,
+                    year_accquired,
                     color
                 )
             `)
@@ -278,8 +277,8 @@ export const getUserVehicles = async (req, res, next) => {
                     cost: m.cost || 0,
                     lastServiceDate: m.last_service,
                     nextDueDate: m.next_due,
-                    nextDueMileage: m.next_due_mileage,
-                    currentMileageAtService: m.current_mileage,
+                    // nextDueMileage: m.next_due_mileage,
+                    // currentMileageAtService: m.current_mileage,
                     reminderDaysBefore: m.reminder_days,
                     status: (() => {
                         if (!m.next_due) return "completed";
@@ -316,15 +315,15 @@ export const getUserVehicles = async (req, res, next) => {
                     make: vehicle.vehicle_details?.[0]?.model || "",
                     model: vehicle.vehicle_details?.[0]?.model || "",
                     year: vehicle.vehicle_details?.[0]?.year || "",
-                    vin: vehicle.vehicle_details?.[0]?.vin || "",
-                    plateNumber: vehicle.vehicle_details?.[0]?.plate_number || "",
+                    chassis_number: vehicle.vehicle_details?.[0]?.chassis_number || "",
+                    reg_number: vehicle.vehicle_details?.[0]?.reg_number || "",
                     color: vehicle.vehicle_details?.[0]?.color || ""
                 },
                 status: vehicle.status,
                 documents: vehicleDocs.map(d => ({
                     id: d.id,
                     type: d.name,
-                    documentNumber: d.document_number || "",
+                    // documentNumber: d.document_number || "",
                     issueDate: d.issue_date,
                     expiryDate: d.expiry_date,
                     status: (() => {
@@ -427,9 +426,9 @@ export const getUserMaintenanceRecords = async (req, res, next) => {
                     name,
                     asset_code,
                     vehicle_details (
-                        plate_number,
+                        reg_number,
                         model,
-                        year,
+                        year_accquired,
                         color
                     )
                 `)
@@ -448,7 +447,6 @@ export const getUserMaintenanceRecords = async (req, res, next) => {
             return {
                 id: m.id,
                 vehicleId: m.asset_id,
-                assetCode: vehicle?.asset_code || "",
                 type: m.maintenance_type,
                 serviceCenter: m.service_center || "N/A",
                 cost: m.cost || 0,
@@ -469,8 +467,8 @@ export const getUserMaintenanceRecords = async (req, res, next) => {
                     name: vehicle?.name || "",
                     make: vehicle?.vehicle_details?.[0]?.model || "",
                     model: vehicle?.vehicle_details?.[0]?.model || "",
-                    year: vehicle?.vehicle_details?.[0]?.year || "",
-                    plateNumber: vehicle?.vehicle_details?.[0]?.plate_number || "",
+                    year_accquired: vehicle?.vehicle_details?.[0]?.year_accquired || "",
+                    reg_number: vehicle?.vehicle_details?.[0]?.reg_number || "",
                     color: vehicle?.vehicle_details?.[0]?.color || ""
                 }
             };
@@ -645,11 +643,13 @@ export const getUserVehicleById = async (req, res, next) => {
                 status,
                 created_at,
                 vehicle_details (
-                    plate_number,
-                    vin,
+                    reg_number,
+                    chassis_number,
+                    SBU,
                     model,
-                    year,
+                    year_accquired,
                     staff_name,
+                    staff_email,
                     color
                 )
             `)
@@ -757,11 +757,13 @@ export const getUserVehicleById = async (req, res, next) => {
             vehicleInfo: {
                 make: vehicle.vehicle_details?.[0]?.model || "",
                 model: vehicle.vehicle_details?.[0]?.model || "",
-                year: vehicle.vehicle_details?.[0]?.year || "",
+                year_accquired: vehicle.vehicle_details?.[0]?.year_accquired || "",
                 staff_name: vehicle.vehicle_details?.[0]?.staff_name || "",
-                vin: vehicle.vehicle_details?.[0]?.vin || "",
-                plateNumber: vehicle.vehicle_details?.[0]?.plate_number || "",
+                staff_email: vehicle.vehicle_details?.[0]?.staff_email || "",
+                chassis_number: vehicle.vehicle_details?.[0]?.chassis_number || "",
+                reg_number: vehicle.vehicle_details?.[0]?.reg_number || "",
                 color: vehicle.vehicle_details?.[0]?.color || "",
+                SBU: vehicle.vehicle_details?.[0]?.SBU || "",
                 status: vehicle.status
             },
             assignment: {
@@ -793,9 +795,9 @@ export const addUserVehicle = async (req, res, next) => {
         const { vehicle, documents, maintenance } = req.body;
 
         // Validate required fields
-        if (!vehicle?.name || !vehicle?.plate_number || !vehicle?.vin || !vehicle?.staff_name || !vehicle?.staff_email) {
+        if (!vehicle?.name || !vehicle?.reg_number || !vehicle?.chassis_number) {
             return res.status(400).json({
-                error: "Vehicle name, plate number, VIN number, Staff Name and Staff Email are required"
+                error: "Vehicle name, Reg Number and Chassis number are required"
             });
         }
 
@@ -833,8 +835,8 @@ export const addUserVehicle = async (req, res, next) => {
         // Check for duplicate plate_number within the same department
         const { data: existingVehicles, error: duplicateError } = await supabase
             .from("vehicle_details")
-            .select("id, plate_number, asset_id")
-            .eq("plate_number", vehicle.plate_number);
+            .select("id, reg_number, asset_id")
+            .eq("reg_number", vehicle.reg_number);
 
         if (existingVehicles && existingVehicles.length > 0) {
             const vehicleIds = existingVehicles.map(v => v.asset_id);
@@ -846,7 +848,7 @@ export const addUserVehicle = async (req, res, next) => {
             
             if (assets && assets.length > 0) {
                 return res.status(400).json({
-                    error: "A vehicle with this plate number already exists in your department"
+                    error: "A vehicle with this reg number already exists in your department"
                 });
             }
         }
@@ -876,12 +878,13 @@ export const addUserVehicle = async (req, res, next) => {
             .from("vehicle_details")
             .insert({
                 asset_id: assetId,
-                plate_number: vehicle.plate_number,
-                vin: vehicle.vin,
+                reg_number: vehicle.reg_number,
+                chassis_number: vehicle.chassis_number,
                 staff_name: vehicle.staff_name,
                 staff_email: vehicle.staff_email,
                 model: vehicle.model,
-                year: vehicle.year ? parseInt(vehicle.year, 10) : null,
+                SBU: vehicle.SBU,
+                year_accquired: vehicle.year_accquired,
                 color: vehicle.color
             });
 
@@ -986,12 +989,13 @@ export const updateUserVehicle = async (req, res, next) => {
             const { error: detailsUpdateError } = await supabase
                 .from("vehicle_details")
                 .update({
-                    plate_number: vehicle.plate_number || null,
-                    vin: vehicle.vin || null,
+                    reg_number: vehicle.reg_number || null,
+                    chassis_number: vehicle.chassis_number || null,
                     staff_name: vehicle.staff_name || null,
                     staff_email: vehicle.staff_email || null,
                     model: vehicle.model || null,
-                    year: vehicle.year ? parseInt(vehicle.year, 10) : null,
+                    SBU: vehicle.SBU || null,
+                    year_accquired: vehicle.year_accquired || null,
                     color: vehicle.color || null
                 })
                 .eq("asset_id", id);
@@ -1414,13 +1418,21 @@ export const batchUploadVehicles = async (req, res, next) => {
             });
         }
 
-        // If preview mode, return the parsed data
+// If preview mode, return the parsed data with users (self only for user role)
         if (req.query.preview === "true") {
+            // Fetch self-user for preview dropdown (user auto-assigns anyway)
+            const { data: selfUser } = await supabase
+                .from("users")
+                .select("id, firstname, lastname, email")
+                .eq("id", userId)
+                .single();
+
             return res.status(200).json({
                 preview: true,
                 totalRows: parseResult.totalRows,
                 vehicles: parseResult.vehicles,
-                warnings: parseResult.warnings
+                warnings: parseResult.warnings,
+                users: selfUser ? [selfUser] : []
             });
         }
 
@@ -1462,13 +1474,14 @@ export const batchUploadVehicles = async (req, res, next) => {
                     .from("vehicle_details")
                     .insert({
                         asset_id: assetId,
-                        plate_number: vehicle.plate_number,
-                        vin: vehicle.vin,
+                        reg_number: vehicle.reg_number,
+                        chassis_number: vehicle.chassis_number,
                         staff_name: vehicle.staff_name,
                         staff_email: vehicle.staff_email,
                         model: vehicle.model,
-                        year: vehicle.year,
-                        color: vehicle.color
+                        year_accquired: vehicle.year_accquired,
+                        color: vehicle.color,
+                        SBU: vehicle.SBU
                     });
 
                 if (vehicleError) {
@@ -1511,9 +1524,18 @@ export const batchUploadVehicles = async (req, res, next) => {
                         performed_by: userId
                     }));
 
+                    console.log("Maintenance data:", maintenance);
+
                     const { error: maintError } = await supabase.from("maintenance_records").insert(maint);
                     if (maintError) {
-                        console.error("Error inserting maintenance:", maintError.message);
+                        console.error(`Row ${vehicleData.rowNum} - Maintenance insert failed for ${vehicle.name}:`, maintError.message);
+                        failedVehicles.push({
+                            row: vehicleData.rowNum,
+                            name: vehicle.name,
+                            error: `Maintenance insert failed: ${maintError.message}`
+                        });
+                    } else {
+                        console.log(`Row ${vehicleData.rowNum} - Inserted ${maint.length} maintenance records for ${vehicle.name}`);
                     }
                 }
 
