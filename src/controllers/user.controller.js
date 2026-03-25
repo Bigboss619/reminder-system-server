@@ -314,7 +314,7 @@ export const getUserVehicles = async (req, res, next) => {
                 vehicleInfo: {
                     make: vehicle.vehicle_details?.[0]?.model || "",
                     model: vehicle.vehicle_details?.[0]?.model || "",
-                    year: vehicle.vehicle_details?.[0]?.year || "",
+                    year_accquired: vehicle.vehicle_details?.[0]?.year_accquired || "",
                     chassis_number: vehicle.vehicle_details?.[0]?.chassis_number || "",
                     reg_number: vehicle.vehicle_details?.[0]?.reg_number || "",
                     color: vehicle.vehicle_details?.[0]?.color || ""
@@ -1120,9 +1120,10 @@ export const getUserReminders = async (req, res, next) => {
                     name,
                     asset_code,
                     vehicle_details (
-                        plate_number,
+                        reg_number,
+                        chassis_number,
                         model,
-                        year,
+                        year_accquired,
                         color
                     )
                 `)
@@ -1185,8 +1186,8 @@ export const getUserReminders = async (req, res, next) => {
                         name: vehicle?.name || "",
                         make: vehicle?.vehicle_details?.[0]?.model || "",
                         model: vehicle?.vehicle_details?.[0]?.model || "",
-                        year: vehicle?.vehicle_details?.[0]?.year || "",
-                        plateNumber: vehicle?.vehicle_details?.[0]?.plate_number || "",
+                        year_accquired: vehicle?.vehicle_details?.[0]?.year_accquired || "",
+                        reg_number: vehicle?.vehicle_details?.[0]?.reg_number || "",
                         color: vehicle?.vehicle_details?.[0]?.color || ""
                     }
                 };
@@ -1213,8 +1214,8 @@ export const getUserReminders = async (req, res, next) => {
                         name: vehicle?.name || "",
                         make: vehicle?.vehicle_details?.[0]?.model || "",
                         model: vehicle?.vehicle_details?.[0]?.model || "",
-                        year: vehicle?.vehicle_details?.[0]?.year || "",
-                        plateNumber: vehicle?.vehicle_details?.[0]?.plate_number || "",
+                        year_accquired: vehicle?.vehicle_details?.[0]?.year_accquired || "",
+                        reg_number: vehicle?.vehicle_details?.[0]?.reg_number || "",
                         color: vehicle?.vehicle_details?.[0]?.color || ""
                     }
                 };
@@ -1242,8 +1243,8 @@ export const getUserReminders = async (req, res, next) => {
                         name: vehicle?.name || "",
                         make: vehicle?.vehicle_details?.[0]?.model || "",
                         model: vehicle?.vehicle_details?.[0]?.model || "",
-                        year: vehicle?.vehicle_details?.[0]?.year || "",
-                        plateNumber: vehicle?.vehicle_details?.[0]?.plate_number || "",
+                        year_accquired: vehicle?.vehicle_details?.[0]?.year_accquired || "",
+                        reg_number: vehicle?.vehicle_details?.[0]?.reg_number || "",
                         color: vehicle?.vehicle_details?.[0]?.color || ""
                     }
                 };
@@ -1271,8 +1272,8 @@ export const getUserReminders = async (req, res, next) => {
                         name: vehicle?.name || "",
                         make: vehicle?.vehicle_details?.[0]?.model || "",
                         model: vehicle?.vehicle_details?.[0]?.model || "",
-                        year: vehicle?.vehicle_details?.[0]?.year || "",
-                        plateNumber: vehicle?.vehicle_details?.[0]?.plate_number || "",
+                        year_accquired: vehicle?.vehicle_details?.[0]?.year_accquired || "",
+                        reg_number: vehicle?.vehicle_details?.[0]?.reg_number || "",
                         color: vehicle?.vehicle_details?.[0]?.color || ""
                     }
                 };
@@ -1339,16 +1340,277 @@ export const deleteUserMaintenance = async (req, res, next) => {
 };
 
 // Batch upload vehicles from Excel file
+// export const batchUploadVehicles = async (req, res, next) => {
+//     try {
+//         const userId = req.user.id;
+        
+//         // Check if file was uploaded
+//         if (!req.file) {
+//             return res.status(400).json({ error: "No file uploaded" });
+//         }
+
+//         // Get user's department
+//         const { data: user, error: userError } = await supabase
+//             .from("users")
+//             .select("department_id")
+//             .eq("id", userId)
+//             .single();
+
+//         if (userError || !user) {
+//             return res.status(404).json({ error: "User not found" });
+//         }
+
+//         const departmentId = user.department_id;
+
+//         // Get department settings for default reminder days
+//         let defaultDocReminderDays = 30;
+//         let defaultMaintReminderDays = 7;
+//         try {
+//             const { data: settings, error: settingsError } = await supabase
+//                 .from("department_settings")
+//                 .select("document_reminder_days, maintenance_reminder_days")
+//                 .eq("department_id", departmentId)
+//                 .maybeSingle();
+
+//             if (!settingsError && settings) {
+//                 defaultDocReminderDays = settings.document_reminder_days || 30;
+//                 defaultMaintReminderDays = settings.maintenance_reminder_days || 7;
+//             }
+//         } catch (settingsErr) {
+//             console.log("Error fetching settings:", settingsErr.message);
+//         }
+
+//         // Import Excel parsing functions (using static import now)
+//         // parseExcelFile, checkDuplicateVINs, checkExistingVehicles are now imported at the top
+
+//         // Parse the Excel file
+//         const fileBuffer = req.file.buffer;
+//         const parseResult = parseExcelFile(fileBuffer);
+
+//         // Return validation errors if any
+//         if (parseResult.errors && parseResult.errors.length > 0) {
+//             return res.status(400).json({
+//                 error: "Validation failed",
+//                 validationErrors: parseResult.errors,
+//                 warnings: parseResult.warnings
+//             });
+//         }
+
+//         // Check for duplicate VINs within the Excel file
+//         const duplicateVINErrors = checkDuplicateVINs(parseResult.vehicles);
+//         if (duplicateVINErrors.length > 0) {
+//             return res.status(400).json({
+//                 error: "Duplicate VINs found in Excel file",
+//                 validationErrors: duplicateVINErrors
+//             });
+//         }
+
+//         // Check for existing vehicles in database
+//         const existingVehicleErrors = await checkExistingVehicles(
+//             parseResult.vehicles, 
+//             supabase, 
+//             departmentId
+//         );
+        
+//         if (existingVehicleErrors.length > 0) {
+//             return res.status(400).json({
+//                 error: "Vehicle already exists",
+//                 validationErrors: existingVehicleErrors
+//             });
+//         }
+
+// // If preview mode, return the parsed data with users (self only for user role)
+//         // if (req.query.preview === "true") {
+//         //     // Fetch self-user for preview dropdown (user auto-assigns anyway)
+//         //     const { data: selfUser } = await supabase
+//         //         .from("users")
+//         //         .select("id, firstname, lastname, email")
+//         //         .eq("id", userId)
+//         //         .single();
+
+//         //     return res.status(200).json({
+//         //         preview: true,
+//         //         totalRows: parseResult.totalRows,
+//         //         vehicles: parseResult.vehicles,
+//         //         warnings: parseResult.warnings,
+//         //         users: selfUser ? [selfUser] : []
+//         //     });
+//         // }
+//         // In your server code, update the PREVIEW section:
+// if (req.query.preview === "true") {
+//   const { data: selfUser } = await supabase
+//     .from("users")
+//     .select("id, firstname, lastname, email")
+//     .eq("id", userId)
+//     .single();
+
+//   // 🆕 Format preview data for frontend
+//   const previewVehicles = parseResult.vehicles.map(vehicleData => ({
+//     ...vehicleData,
+//     documents: vehicleData.documents.map(doc => ({
+//       ...doc,
+//       // Use display format for preview table
+//       issue_date_display: doc.issueDateDisplay,
+//       expiry_date_display: doc.expiryDateDisplay
+//     })),
+//     maintenance: vehicleData.maintenance.map(m => ({
+//       ...m,
+//       last_service_display: m.lastServiceDisplay
+//     }))
+//   }));
+
+//   return res.status(200).json({
+//     preview: true,
+//     totalRows: parseResult.totalRows,
+//     vehicles: previewVehicles,
+//     totalDocuments: previewVehicles.reduce((sum, v) => sum + v.documents.length, 0),
+//     warnings: parseResult.warnings,
+//     users: selfUser ? [selfUser] : []
+//   });
+// }
+
+//         // Process and insert each vehicle
+//         const insertedVehicles = [];
+//         const failedVehicles = [];
+
+//         for (const vehicleData of parseResult.vehicles) {
+//             try {
+//                 const { vehicle, documents, maintenance } = vehicleData;
+
+//                 // Insert asset
+//                 const { data: newAsset, error: assetError } = await supabase
+//                     .from("assets")
+//                     .insert({
+//                         department_id: departmentId,
+//                         name: vehicle.name,
+//                         asset_type: "vehicle",
+//                         status: vehicle.status || "active",
+//                         created_by: userId,
+//                         assigned_user_id: userId
+//                     })
+//                     .select()
+//                     .single();
+
+//                 if (assetError) {
+//                     failedVehicles.push({
+//                         row: vehicleData.rowNum,
+//                         name: vehicle.name,
+//                         error: assetError.message
+//                     });
+//                     continue;
+//                 }
+
+//                 const assetId = newAsset.id;
+
+//                 // Insert vehicle details
+//                 const { error: vehicleError } = await supabase
+//                     .from("vehicle_details")
+//                     .insert({
+//                         asset_id: assetId,
+//                         reg_number: vehicle.reg_number,
+//                         chassis_number: vehicle.chassis_number,
+//                         staff_name: vehicle.staff_name,
+//                         staff_email: vehicle.staff_email,
+//                         model: vehicle.model,
+//                         year_accquired: vehicle.year_accquired,
+//                         color: vehicle.color,
+//                         SBU: vehicle.SBU
+//                     });
+
+//                 if (vehicleError) {
+//                     // Rollback asset creation
+//                     await supabase.from("assets").delete().eq("id", assetId);
+//                     failedVehicles.push({
+//                         row: vehicleData.rowNum,
+//                         name: vehicle.name,
+//                         error: vehicleError.message
+//                     });
+//                     continue;
+//                 }
+
+//                 // Insert documents
+//                 if (documents && documents.length > 0) {
+//                     const docs = documents.map(doc => ({
+//                         asset_id: assetId,
+//                         name: doc.name,
+//                         issue_date: doc.issueDate || null,
+//                         expiry_date: doc.expiryDate || null,
+//                         reminder_days: doc.reminder || defaultDocReminderDays,
+//                         uploaded_by: userId
+//                     }));
+
+//                     const { error: docsError } = await supabase.from("documents").insert(docs);
+//                     if (docsError) {
+//                         console.error("Error inserting documents:", docsError.message);
+//                     }
+//                 }
+
+//                 // Insert maintenance records
+//                 if (maintenance && maintenance.length > 0) {
+//                     const maint = maintenance.map(item => ({
+//                         user_id: userId,
+//                         asset_id: assetId,
+//                         maintenance_type: item.type,
+//                         last_service: item.lastService || null,
+//                         next_due: item.nextDue || null,
+//                         reminder_days: defaultMaintReminderDays,
+//                         performed_by: userId
+//                     }));
+
+//                     console.log("Maintenance data:", maintenance);
+
+//                     const { error: maintError } = await supabase.from("maintenance_records").insert(maint);
+//                     if (maintError) {
+//                         console.error(`Row ${vehicleData.rowNum} - Maintenance insert failed for ${vehicle.name}:`, maintError.message);
+//                         failedVehicles.push({
+//                             row: vehicleData.rowNum,
+//                             name: vehicle.name,
+//                             error: `Maintenance insert failed: ${maintError.message}`
+//                         });
+//                     } else {
+//                         console.log(`Row ${vehicleData.rowNum} - Inserted ${maint.length} maintenance records for ${vehicle.name}`);
+//                     }
+//                 }
+
+//                 insertedVehicles.push({
+//                     row: vehicleData.rowNum,
+//                     name: vehicle.name,
+//                     vehicleId: assetId
+//                 });
+
+//             } catch (processError) {
+//                 failedVehicles.push({
+//                     row: vehicleData.rowNum,
+//                     name: vehicleData.vehicle.name,
+//                     error: processError.message
+//                 });
+//             }
+//         }
+
+//         // Return result
+//         res.status(200).json({
+//             message: `Batch upload completed: ${insertedVehicles.length} vehicles inserted`,
+//             insertedCount: insertedVehicles.length,
+//             failedCount: failedVehicles.length,
+//             insertedVehicles,
+//             failedVehicles,
+//             warnings: parseResult.warnings
+//         });
+
+//     } catch (error) {
+//         next(error);
+//     }
+// };
+
 export const batchUploadVehicles = async (req, res, next) => {
     try {
         const userId = req.user.id;
         
-        // Check if file was uploaded
         if (!req.file) {
             return res.status(400).json({ error: "No file uploaded" });
         }
 
-        // Get user's department
+        // Get user department
         const { data: user, error: userError } = await supabase
             .from("users")
             .select("department_id")
@@ -1361,33 +1623,28 @@ export const batchUploadVehicles = async (req, res, next) => {
 
         const departmentId = user.department_id;
 
-        // Get department settings for default reminder days
+        // Get department settings
         let defaultDocReminderDays = 30;
         let defaultMaintReminderDays = 7;
         try {
-            const { data: settings, error: settingsError } = await supabase
+            const { data: settings } = await supabase
                 .from("department_settings")
                 .select("document_reminder_days, maintenance_reminder_days")
                 .eq("department_id", departmentId)
                 .maybeSingle();
 
-            if (!settingsError && settings) {
+            if (settings) {
                 defaultDocReminderDays = settings.document_reminder_days || 30;
                 defaultMaintReminderDays = settings.maintenance_reminder_days || 7;
             }
         } catch (settingsErr) {
-            console.log("Error fetching settings:", settingsErr.message);
+            console.log("Settings fetch failed:", settingsErr.message);
         }
 
-        // Import Excel parsing functions (using static import now)
-        // parseExcelFile, checkDuplicateVINs, checkExistingVehicles are now imported at the top
+        // Parse Excel file
+        const parseResult = parseExcelFile(req.file.buffer);
 
-        // Parse the Excel file
-        const fileBuffer = req.file.buffer;
-        const parseResult = parseExcelFile(fileBuffer);
-
-        // Return validation errors if any
-        if (parseResult.errors && parseResult.errors.length > 0) {
+        if (parseResult.errors?.length > 0) {
             return res.status(400).json({
                 error: "Validation failed",
                 validationErrors: parseResult.errors,
@@ -1395,32 +1652,30 @@ export const batchUploadVehicles = async (req, res, next) => {
             });
         }
 
-        // Check for duplicate VINs within the Excel file
+        // Check duplicates
         const duplicateVINErrors = checkDuplicateVINs(parseResult.vehicles);
         if (duplicateVINErrors.length > 0) {
             return res.status(400).json({
-                error: "Duplicate VINs found in Excel file",
+                error: "Duplicate VINs found",
                 validationErrors: duplicateVINErrors
             });
         }
 
-        // Check for existing vehicles in database
         const existingVehicleErrors = await checkExistingVehicles(
-            parseResult.vehicles, 
-            supabase, 
-            departmentId
+            parseResult.vehicles, supabase, departmentId
         );
         
         if (existingVehicleErrors.length > 0) {
             return res.status(400).json({
-                error: "Vehicle already exists",
+                error: "Vehicles already exist",
                 validationErrors: existingVehicleErrors
             });
         }
 
-// If preview mode, return the parsed data with users (self only for user role)
+        /* =========================
+           PREVIEW MODE - BEAUTIFUL DATES
+        ========================= */
         if (req.query.preview === "true") {
-            // Fetch self-user for preview dropdown (user auto-assigns anyway)
             const { data: selfUser } = await supabase
                 .from("users")
                 .select("id, firstname, lastname, email")
@@ -1430,145 +1685,196 @@ export const batchUploadVehicles = async (req, res, next) => {
             return res.status(200).json({
                 preview: true,
                 totalRows: parseResult.totalRows,
+                totalDocuments: parseResult.totalDocuments || 0,
                 vehicles: parseResult.vehicles,
-                warnings: parseResult.warnings,
+                warnings: parseResult.warnings || [],
                 users: selfUser ? [selfUser] : []
             });
         }
 
-        // Process and insert each vehicle
+        /* =========================
+           BATCH UPLOAD - NO MORE DOCUMENT FAILURES!
+        ========================= */
+        console.log(`🚀 Starting batch upload: ${parseResult.vehicles.length} vehicles`);
+        
         const insertedVehicles = [];
         const failedVehicles = [];
+        const BATCH_SIZE = 10; // Process 10 at a time
 
-        for (const vehicleData of parseResult.vehicles) {
+        // 🆕 BATCH PROCESSING
+        for (let i = 0; i < parseResult.vehicles.length; i += BATCH_SIZE) {
+            const batch = parseResult.vehicles.slice(i, i + BATCH_SIZE);
+            console.log(`📦 Processing batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(parseResult.vehicles.length/BATCH_SIZE)}`);
+            
             try {
-                const { vehicle, documents, maintenance } = vehicleData;
+                // 1. Insert assets batch
+                const assetData = batch.map(v => ({
+                    department_id: departmentId,
+                    name: v.vehicle.name,
+                    asset_type: "vehicle",
+                    status: v.vehicle.status || "active",
+                    created_by: userId,
+                    assigned_user_id: userId
+                }));
 
-                // Insert asset
-                const { data: newAsset, error: assetError } = await supabase
+                const { data: newAssets, error: assetError } = await supabase
                     .from("assets")
-                    .insert({
-                        department_id: departmentId,
-                        name: vehicle.name,
-                        asset_type: "vehicle",
-                        status: vehicle.status || "active",
-                        created_by: userId,
-                        assigned_user_id: userId
-                    })
-                    .select()
-                    .single();
+                    .insert(assetData)
+                    .select();
 
                 if (assetError) {
-                    failedVehicles.push({
-                        row: vehicleData.rowNum,
-                        name: vehicle.name,
-                        error: assetError.message
-                    });
+                    console.error("🚨 Asset batch failed:", assetError);
+                    batch.forEach((v, idx) => failedVehicles.push({
+                        row: v.rowNum,
+                        name: v.vehicle.name,
+                        error: `Asset failed: ${assetError.message}`
+                    }));
                     continue;
                 }
 
-                const assetId = newAsset.id;
+                // 2. Insert vehicle details batch
+                const vehicleDetailsData = batch.map((v, idx) => ({
+                    asset_id: newAssets[idx].id,
+                    reg_number: v.vehicle.reg_number,
+                    chassis_number: v.vehicle.chassis_number,
+                    staff_name: v.vehicle.staff_name,
+                    staff_email: v.vehicle.staff_email,
+                    model: v.vehicle.model,
+                    year_accquired: v.vehicle.year_accquired,
+                    color: v.vehicle.color || "",
+                    SBU: v.vehicle.SBU || ""
+                }));
 
-                // Insert vehicle details
                 const { error: vehicleError } = await supabase
                     .from("vehicle_details")
-                    .insert({
-                        asset_id: assetId,
-                        reg_number: vehicle.reg_number,
-                        chassis_number: vehicle.chassis_number,
-                        staff_name: vehicle.staff_name,
-                        staff_email: vehicle.staff_email,
-                        model: vehicle.model,
-                        year_accquired: vehicle.year_accquired,
-                        color: vehicle.color,
-                        SBU: vehicle.SBU
-                    });
+                    .insert(vehicleDetailsData);
 
                 if (vehicleError) {
-                    // Rollback asset creation
-                    await supabase.from("assets").delete().eq("id", assetId);
-                    failedVehicles.push({
-                        row: vehicleData.rowNum,
-                        name: vehicle.name,
-                        error: vehicleError.message
-                    });
+                    console.error("🚨 Vehicle details batch failed:", vehicleError);
+                    // Rollback assets
+                    const assetIds = newAssets.map(a => a.id);
+                    await supabase.from("assets").delete().in("id", assetIds);
+                    batch.forEach(v => failedVehicles.push({
+                        row: v.rowNum,
+                        name: v.vehicle.name,
+                        error: `Vehicle details failed: ${vehicleError.message}`
+                    }));
                     continue;
                 }
 
-                // Insert documents
-                if (documents && documents.length > 0) {
-                    const docs = documents.map(doc => ({
-                        asset_id: assetId,
-                        name: doc.name,
-                        issue_date: doc.issueDate || null,
-                        expiry_date: doc.expiryDate || null,
-                        reminder_days: doc.reminder || defaultDocReminderDays,
-                        uploaded_by: userId
-                    }));
-
-                    const { error: docsError } = await supabase.from("documents").insert(docs);
-                    if (docsError) {
-                        console.error("Error inserting documents:", docsError.message);
-                    }
-                }
-
-                // Insert maintenance records
-                if (maintenance && maintenance.length > 0) {
-                    const maint = maintenance.map(item => ({
-                        user_id: userId,
-                        asset_id: assetId,
-                        maintenance_type: item.type,
-                        last_service: item.lastService || null,
-                        next_due: item.nextDue || null,
-                        reminder_days: defaultMaintReminderDays,
-                        performed_by: userId
-                    }));
-
-                    console.log("Maintenance data:", maintenance);
-
-                    const { error: maintError } = await supabase.from("maintenance_records").insert(maint);
-                    if (maintError) {
-                        console.error(`Row ${vehicleData.rowNum} - Maintenance insert failed for ${vehicle.name}:`, maintError.message);
-                        failedVehicles.push({
-                            row: vehicleData.rowNum,
-                            name: vehicle.name,
-                            error: `Maintenance insert failed: ${maintError.message}`
+                // 3. Collect ALL documents for batch insert
+                const allDocs = [];
+                batch.forEach((v, idx) => {
+                    if (v.documents?.length > 0) {
+                        v.documents.forEach(doc => {
+                            allDocs.push({
+                                asset_id: newAssets[idx].id,
+                                name: doc.name,
+                                issue_date: doc.issueDate || null,
+                                expiry_date: doc.expiryDate, // ✅ Always valid from parser
+                                reminder_days: doc.reminder || defaultDocReminderDays,
+                                uploaded_by: userId
+                            });
                         });
+                    }
+                });
+
+                // 4. Batch insert documents
+                if (allDocs.length > 0) {
+                    const { error: docsError } = await supabase
+                        .from("documents")
+                        .insert(allDocs);
+                    
+                    if (docsError) {
+                        console.error(`🚨 Documents batch failed (${allDocs.length}):`, docsError.message);
                     } else {
-                        console.log(`Row ${vehicleData.rowNum} - Inserted ${maint.length} maintenance records for ${vehicle.name}`);
+                        console.log(`✅ Inserted ${allDocs.length} documents`);
                     }
                 }
 
-                insertedVehicles.push({
-                    row: vehicleData.rowNum,
-                    name: vehicle.name,
-                    vehicleId: assetId
+                // 5. Collect ALL maintenance for batch insert
+                const allMaintenance = [];
+                batch.forEach((v, idx) => {
+                    if (v.maintenance?.length > 0) {
+                        v.maintenance.forEach(item => {
+                            allMaintenance.push({
+                                user_id: userId,
+                                asset_id: newAssets[idx].id,
+                                maintenance_type: item.type,
+                                last_service: item.lastService || null,
+                                next_due: item.nextDue || null,
+                                reminder_days: defaultMaintReminderDays,
+                                performed_by: userId
+                            });
+                        });
+                    }
                 });
 
-            } catch (processError) {
-                failedVehicles.push({
-                    row: vehicleData.rowNum,
-                    name: vehicleData.vehicle.name,
-                    error: processError.message
+                // 6. Batch insert maintenance
+                if (allMaintenance.length > 0) {
+                    const { error: maintError } = await supabase
+                        .from("maintenance_records")
+                        .insert(allMaintenance);
+                    
+                    if (maintError) {
+                        console.error(`🚨 Maintenance batch failed (${allMaintenance.length}):`, maintError.message);
+                    } else {
+                        console.log(`✅ Inserted ${allMaintenance.length} maintenance records`);
+                    }
+                }
+
+                // 7. Add to success list
+                batch.forEach((v, idx) => {
+                    insertedVehicles.push({
+                        row: v.rowNum,
+                        name: v.vehicle.name,
+                        vehicleId: newAssets[idx].id,
+                        documentsCount: v.documents?.length || 0,
+                        maintenanceCount: v.maintenance?.length || 0
+                    });
                 });
+
+                // Rate limiting
+                await new Promise(resolve => setTimeout(resolve, 200));
+
+            } catch (batchError) {
+                console.error(`🚨 Batch ${Math.floor(i/BATCH_SIZE) + 1} error:`, batchError);
+                batch.forEach(v => failedVehicles.push({
+                    row: v.rowNum,
+                    name: v.vehicle.name,
+                    error: batchError.message
+                }));
             }
         }
 
-        // Return result
+        /* =========================
+           SUCCESS RESPONSE
+        ========================= */
+        const totalDocs = insertedVehicles.reduce((sum, v) => sum + v.documentsCount, 0);
+        
         res.status(200).json({
-            message: `Batch upload completed: ${insertedVehicles.length} vehicles inserted`,
-            insertedCount: insertedVehicles.length,
-            failedCount: failedVehicles.length,
-            insertedVehicles,
-            failedVehicles,
-            warnings: parseResult.warnings
+            success: true,
+            message: `✅ Upload complete! ${insertedVehicles.length}/${parseResult.vehicles.length} vehicles processed`,
+            stats: {
+                totalVehicles: parseResult.vehicles.length,
+                insertedVehicles: insertedVehicles.length,
+                failedVehicles: failedVehicles.length,
+                totalDocuments: totalDocs,
+                totalMaintenance: insertedVehicles.reduce((sum, v) => sum + v.maintenanceCount, 0)
+            },
+            insertedVehicles: insertedVehicles.slice(0, 20), // First 20
+            failedVehicles: failedVehicles.slice(0, 10), // First 10 failures
+            warnings: parseResult.warnings || []
         });
 
     } catch (error) {
-        next(error);
+        console.error("🚨 Batch upload failed:", error);
+        res.status(500).json({ 
+            error: "Upload failed", 
+            message: error.message 
+        });
     }
 };
-
 // Get Excel template for batch upload
 export const getVehicleTemplate = async (req, res, next) => {
     try {

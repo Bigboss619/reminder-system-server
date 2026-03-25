@@ -538,7 +538,7 @@ export const getCars = async (req, res, next) => {
       reg_number: asset.vehicle_details?.[0]?.reg_number || "",
       chassis_number: asset.vehicle_details?.[0]?.chassis_number || "",
       model: asset.vehicle_details?.[0]?.model || "",
-      year: asset.vehicle_details?.[0]?.year || "",
+      year_accquired: asset.vehicle_details?.[0]?.year_accquired || "",
       color: asset.vehicle_details?.[0]?.color || "",
       status: asset.status === "active" ? "Active" : "Inactive",
       documentStatus: "valid",
@@ -1573,9 +1573,9 @@ export const getAvailableCars = async (req, res, next) => {
                 assigned_user_id,
                 vehicle_details (
                     id,
-                    plate_number,
+                    reg_number,
                     model,
-                    year,
+                    year_accquired,
                     color
                 )
             `)
@@ -1607,9 +1607,9 @@ export const getAvailableCars = async (req, res, next) => {
         const cars = assets?.map(asset => ({
             id: asset.id,
             name: asset.name,
-            plate_number: asset.vehicle_details?.[0]?.plate_number || "",
+            reg_number: asset.vehicle_details?.[0]?.reg_number || "",
             model: asset.vehicle_details?.[0]?.model || "",
-            year: asset.vehicle_details?.[0]?.year || "",
+            year_accquired: asset.vehicle_details?.[0]?.year_accquired || "",
             color: asset.vehicle_details?.[0]?.color || "",
             assignedTo: asset.assigned_user_id ? usersMap[asset.assigned_user_id] || "Unknown" : null,
             assignedToId: asset.assigned_user_id,
